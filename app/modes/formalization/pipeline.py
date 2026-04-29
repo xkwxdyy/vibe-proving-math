@@ -14,7 +14,7 @@ from __future__ import annotations
 from typing import AsyncIterator, Optional
 
 from modes.formalization.models import FormalizeResult, VerificationReport
-from modes.formalization.orchestrator import run_formalization
+from modes.formalization.orchestrator import run_formalization, run_formalization_aristotle
 from modes.formalization.tools import (
     FormalizationTools,
     _normalize_candidate_data,
@@ -204,7 +204,25 @@ async def formalize_stream(
     current_code: Optional[str] = None,
     compile_error: Optional[str] = None,
     skip_search: bool = False,
+    mode: str = "aristotle",
 ) -> AsyncIterator[str]:
+    from core.aristotle_client import is_aristotle_enabled
+
+    if (
+        (mode or "").strip().lower() == "aristotle"
+        and is_aristotle_enabled()
+        and not (current_code or "").strip()
+    ):
+        tools_ar = FormalizationTools()
+        async for chunk in run_formalization_aristotle(
+            statement,
+            lang=lang or "zh",
+            skip_search=skip_search,
+            tools=tools_ar,
+        ):
+            yield chunk
+        return
+
     tools = FormalizationTools(
         extract_keywords=_extract_keywords,
         search_github_mathlib=_search_github_mathlib,

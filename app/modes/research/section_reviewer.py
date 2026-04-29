@@ -2,11 +2,12 @@
 
 与旧 pipeline 区别：
   - 不按页硬切定理；不将章节标题伪装成 theorem；
-  - 无证明或未逐步验证时不得输出 ``Correct``，只能 ``NotChecked`` / ``Partial``；
+  - 三档 verdict：无证明→NotChecked；有草图/复杂证明→Partial；完整追踪→Correct；
   - 引用核查仅基于章节文本，不做 TheoremSearch 误匹配。
 """
 from __future__ import annotations
 
+import asyncio
 import inspect
 import logging
 import re
@@ -22,7 +23,7 @@ logger = logging.getLogger(__name__)
 ProgressCb = Optional[Callable[[str, str], Awaitable[None]]]
 ResultCb = Optional[Callable[[dict], Awaitable[None]]]
 
-DEFAULT_SECTION_MODEL = "gemini-3.1-pro"
+DEFAULT_SECTION_MODEL = "gemini-3.1-pro-preview"
 
 # chat_json 仅作提示的精简 schema（非严格 JSON Schema draft）
 SECTION_REVIEW_SCHEMA: dict[str, Any] = {
@@ -32,9 +33,19 @@ SECTION_REVIEW_SCHEMA: dict[str, Any] = {
         {
             "role": "theorem | lemma | corollary | proposition | informal_claim — 不得填 section_heading",
             "statement": "string — 数学陈述原文摘要，禁止把章节标题当作定理陈述",
-            "proof_present": "boolean — 文本中是否出现针对该陈述的证明或证明草图",
-            "verification_status": "verified | has_gaps | not_checked | insufficient_evidence",
-            "verdict": "Correct | Partial | Incorrect | NotChecked",
+            "proof_present": "boolean — 文本中是否出现针对该陈述的证明或证明草图（哪怕是草图）",
+            "verification_status": (
+                "verified        — 完整追踪证明，逻辑无误 | "
+                "has_gaps        — 有证明草图但存在跳步/不完整 | "
+                "not_checked     — 文中无任何证明文本 | "
+                "insufficient_evidence — 太短/太碎无法判断"
+            ),
+            "verdict": (
+                "Correct     — proof_present=true 且完整验证 | "
+                "Partial     — proof_present=true 但有草图/跳步/太复杂 | "
+                "Incorrect   — 发现明确逻辑错误 | "
+                "NotChecked  — 文中无证明（仅陈述）"
+            ),
             "source_quote": "string — 支持判断的原文短引（<=400字）",
         }
     ],
@@ -53,8 +64,18 @@ Rules:
 1) Output ONLY valid JSON matching the schema shape given in the user message. No markdown fences.
 2) Never treat a section/chapter heading (e.g. "Introduction", "The Sphere Packing Problem in Dimension 24") as a theorem statement.
 3) For each real mathematical claim (theorem/lemma/corollary/proposition or important informal claim), fill main_claims.
-4) If there is no proof or only a proof sketch in the text, set proof_present=false and verification_status must be "not_checked" or "insufficient_evidence", and verdict MUST be "NotChecked" (never "Correct").
-5) If you did not line-by-line verify the logic, use verification_status "not_checked" and verdict "NotChecked".
+4) verdict / verification_status THREE-TIER RULE — follow exactly:
+   • No proof at all in the text (only statement, Abstract, Introduction):
+       proof_present=false, verification_status="not_checked", verdict="NotChecked"
+   • Proof or proof sketch IS present but has gaps, omitted steps, "it is easy to see",
+     or is too complex to trace line-by-line:
+       proof_present=true, verification_status="has_gaps", verdict="Partial"
+   • Proof IS present AND you can follow every step with no logical gap:
+       proof_present=true, verification_status="verified", verdict="Correct"
+   NEVER use verdict="NotChecked" when proof_present=true.
+   NEVER use verdict="Correct" when proof_present=false or verification_status="has_gaps".
+5) logic_issues is INDEPENDENT of verdict — always flag any mathematical error you spot,
+   even if verdict is "Partial". A Partial verdict does not mean the proof is correct.
 6) Citation issues: only flag unclear or broken INTERNAL references visible in this section (e.g. broken numbering). Do NOT invent external library matches.
 7) source_quote fields must be verbatim excerpts from the provided section text (short).
 """
@@ -150,7 +171,12 @@ def _normalize_status_token(s: str) -> str:
 
 
 def enforce_verdict_rules(section: dict[str, Any]) -> dict[str, Any]:
-    """强制：无证明 / not_checked / insufficient_evidence 不得为 Correct。"""
+    """三档强制规则：
+    - 无证明（proof_present=false）→ not_checked + NotChecked
+    - 有证明但 status=not_checked/insufficient_evidence → has_gaps + Partial（不强制 NotChecked）
+    - 有证明且 status=verified → 允许 Correct
+    - 发现明确错误 → Incorrect（无论 proof_present）
+    """
     sec = dict(section)
     claims = []
     for c in sec.get("main_claims") or []:
@@ -164,15 +190,32 @@ def enforce_verdict_rules(section: dict[str, Any]) -> dict[str, Any]:
         role = str(cc.get("role") or "").lower()
         stmt = str(cc.get("statement") or "").strip()
 
-        # 章节标题式陈述：降级为 not_checked
+        # 章节标题式陈述：降级为无证明
         if role == "section_heading" or _looks_like_section_heading(stmt, sec.get("section_title") or ""):
             cc["verification_status"] = "not_checked"
-            verdict = "NotChecked"
             cc["proof_present"] = False
+            proof_present = False
+            verdict = "NotChecked"
 
-        if not proof_present or status in ("not_checked", "insufficient_evidence"):
-            if verdict == "Correct":
+        elif not proof_present:
+            # 无证明：只允许 NotChecked 或 Incorrect（陈述本身可能错误）
+            cc["verification_status"] = "not_checked"
+            if verdict != "Incorrect":
                 verdict = "NotChecked"
+
+        else:
+            # 有证明（proof_present=true）
+            if status in ("not_checked", "insufficient_evidence"):
+                # 模型未能完整追踪：至少给 Partial，而非 NotChecked
+                cc["verification_status"] = "has_gaps"
+                if verdict in ("Correct", "NotChecked"):
+                    verdict = "Partial"
+            elif status == "has_gaps":
+                # 明确的草图/跳步：不允许 Correct
+                if verdict == "Correct":
+                    verdict = "Partial"
+            # status == "verified" → 允许 Correct，不干预
+            # Incorrect 无论何种 status 均保留
         cc["verdict"] = verdict
         claims.append(cc)
     sec["main_claims"] = claims
@@ -209,32 +252,48 @@ def infer_paper_title(markdown: str, sections_payload: list[dict[str, Any]]) -> 
 
 
 def aggregate_overall_verdict(sections: list[dict[str, Any]]) -> str:
-    """汇总 overall_verdict（含 NotChecked）。"""
+    """汇总 overall_verdict。
+
+    优先级（高→低）：
+      Incorrect > Partial > Correct > NotChecked
+    有任何 logic_issues(critical/high) → 整体至少 Partial。
+    全部 NotChecked（无任何证明章节）→ NotChecked。
+    """
     claim_verdicts: list[str] = []
     has_critical = False
+    has_high_issue = False
     for sec in sections:
         for iss in sec.get("logic_issues") or []:
             if not isinstance(iss, dict):
                 continue
-            if str(iss.get("severity") or "").lower() == "critical":
+            sev = str(iss.get("severity") or "").lower()
+            if sev == "critical":
                 has_critical = True
+            elif sev == "high":
+                has_high_issue = True
         for c in sec.get("main_claims") or []:
             if isinstance(c, dict):
                 v = str(c.get("verdict") or "")
                 if v:
                     claim_verdicts.append(v)
+
     if has_critical:
         return "Incorrect"
     if "Incorrect" in claim_verdicts:
         return "Incorrect"
-    if "Partial" in claim_verdicts:
+
+    non_nc = [v for v in claim_verdicts if v != "NotChecked"]
+    if not non_nc:
+        # 全部 NotChecked 或没有 claim：文章只有陈述无证明
+        return "NotChecked"
+
+    if "Partial" in non_nc or has_high_issue:
         return "Partial"
-    if claim_verdicts and all(v == "Correct" for v in claim_verdicts):
+    if all(v == "Correct" for v in non_nc):
+        # 有 Correct，其余 NotChecked（无证明章节）→ Partial，因为审查不完整
+        if "NotChecked" in claim_verdicts:
+            return "Partial"
         return "Correct"
-    if claim_verdicts and all(v == "NotChecked" for v in claim_verdicts):
-        return "NotChecked"
-    if not claim_verdicts:
-        return "NotChecked"
     return "Partial"
 
 
@@ -358,34 +417,45 @@ async def run_pdf_nanonets_section_review(
         sections = sections[:max_sections]
         await _emit_progress(progress, "section_trim", f"章节数超过上限，仅审查前 {max_sections} 个大章节。")
 
-    reviewed: list[dict[str, Any]] = []
-    for idx, sec in enumerate(sections, start=1):
+    _sem = asyncio.Semaphore(6)  # 最多同时 6 个章节并行，避免打爆 Gemini 速率限制
+
+    def _make_error_section(title: str, exc: Exception) -> dict[str, Any]:
+        logger.exception("section LLM failed for %s", title)
+        return {
+            "section_title": title,
+            "page_range": "",
+            "main_claims": [],
+            "proofs_found": [],
+            "logic_issues": [
+                {
+                    "severity": "high",
+                    "description": f"本章 LLM 审查失败：{type(exc).__name__}: {exc}",
+                    "source_quote": "",
+                }
+            ],
+            "citation_issues": [],
+            "confidence": 0.0,
+            "source_quotes": [],
+        }
+
+    async def _review_one(idx: int, sec: dict[str, str]) -> tuple[int, dict[str, Any]]:
         title = sec["title"]
         body = sec["body"]
         await _emit_progress(progress, "section", f"正在结构化审查章节 {idx}/{len(sections)}：{title[:80]}")
-        try:
-            payload = await review_section_with_llm(title, body, model=model, lang=lang or "zh")
-        except Exception as exc:  # noqa: BLE001
-            logger.exception("section LLM failed for %s", title)
-            payload = {
-                "section_title": title,
-                "page_range": "",
-                "main_claims": [],
-                "proofs_found": [],
-                "logic_issues": [
-                    {
-                        "severity": "high",
-                        "description": f"本章 LLM 审查失败：{type(exc).__name__}: {exc}",
-                        "source_quote": "",
-                    }
-                ],
-                "citation_issues": [],
-                "confidence": 0.0,
-                "source_quotes": [],
-            }
+        async with _sem:
+            try:
+                payload = await review_section_with_llm(title, body, model=model, lang=lang or "zh")
+            except Exception as exc:  # noqa: BLE001
+                payload = _make_error_section(title, exc)
         payload = enforce_verdict_rules(payload)
         await _emit(result_cb, {"kind": "section", "index": idx, "data": payload})
-        reviewed.append(payload)
+        return idx, payload
+
+    raw_results = await asyncio.gather(*[
+        _review_one(i, s) for i, s in enumerate(sections, start=1)
+    ])
+    # 按原始章节顺序排列（gather 返回顺序与输入一致，但显式排序更安全）
+    reviewed: list[dict[str, Any]] = [p for _, p in sorted(raw_results, key=lambda t: t[0])]
 
     paper_title = infer_paper_title(md, reviewed)
     overall = aggregate_overall_verdict(reviewed)

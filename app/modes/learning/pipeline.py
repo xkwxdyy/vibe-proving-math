@@ -12,14 +12,16 @@ Pipeline 流程（4 个板块，均标注来源）：
 from __future__ import annotations
 
 import asyncio
-import re
 from dataclasses import dataclass
 from typing import AsyncIterator, Optional
 
-from core.llm import chat, stream_chat, lang_sys_suffix
+from core.llm import stream_chat, lang_sys_suffix
 from skills.prerequisite_map import prerequisite_map
-from skills.search_theorems import search_theorems, format_theorems_for_prompt
-from skills.mactutor_search import get_mactutor_context, ATTRIBUTION
+from skills.mactutor_search import get_mactutor_context
+
+# ── 可调度的 section id（与前端 data-section、SSE step 对齐）──────────────────
+
+SECTION_IDS = frozenset({"background", "prereq", "proof", "examples"})
 
 
 # ── System Prompts ────────────────────────────────────────────────────────────
@@ -115,7 +117,6 @@ async def run_learning_pipeline(
     *,
     level: str = "undergraduate",
     model: Optional[str] = None,
-    include_prereqs: bool = True,
     lang: Optional[str] = None,
 ) -> LearningOutput:
     """非流式包装：收集 stream_learning_pipeline 的所有输出，返回 LearningOutput。"""
@@ -135,6 +136,13 @@ async def run_learning_pipeline(
     )
 
 
+_STRIP_HEADING_KEYWORDS: frozenset[str] = frozenset({
+    "## 证明", "## 完整证明", "## 例子", "## 具体例子", "## 延伸阅读",
+    "## 数学背景", "## 前置知识",
+    "## proof", "## elaboration", "## examples", "## background",
+})
+
+
 def _strip_leading_heading(text: str, heading: str) -> str:
     """剥掉 LLM 输出最前面的 ## 标题，避免与 pipeline 加的标题重复。"""
     if not text:
@@ -148,17 +156,7 @@ def _strip_leading_heading(text: str, heading: str) -> str:
             continue
         if s.startswith("##") and (
             heading.lstrip("# ").lower() in s.lower()
-            or s.lower().startswith("## 证明")
-            or s.lower().startswith("## 完整证明")
-            or s.lower().startswith("## 例子")
-            or s.lower().startswith("## 具体例子")
-            or s.lower().startswith("## 延伸阅读")
-            or s.lower().startswith("## 数学背景")
-            or s.lower().startswith("## 前置知识")
-            or s.lower().startswith("## proof")
-            or s.lower().startswith("## elaboration")
-            or s.lower().startswith("## examples")
-            or s.lower().startswith("## background")
+            or any(s.lower().startswith(kw) for kw in _STRIP_HEADING_KEYWORDS)
         ):
             drop = i + 1
         else:
@@ -189,46 +187,50 @@ def _fix_broken_dollar(text: str) -> str:
     return text
 
 
-_LANG_INSTRUCTION = {
-    "zh": "\n\nIMPORTANT: The user wrote in Chinese. You MUST respond entirely in Chinese (简体中文). All explanations, prose, and section titles must be in Chinese. Keep LaTeX formulas as-is.",
-    "en": "",
-}
-
-def _lang_suffix(lang: Optional[str]) -> str:
-    if lang == "zh":
-        return _LANG_INSTRUCTION["zh"]
-    return ""
-
-
 def _status_frame(step: str, message: str) -> str:
     return f"<!--vp-status:{step}|{message}-->"
 
 
-async def stream_learning_pipeline(
-    statement: str,
-    *,
-    level: str = "undergraduate",
-    model: Optional[str] = None,
-    kb_context: Optional[str] = None,
-    lang: Optional[str] = None,
+async def _stream_stripped(
+    user_msg: str,
+    system: str,
+    model: Optional[str],
+    max_tokens: int,
+    heading: str,
 ) -> AsyncIterator[str]:
-    """流式版本：按节顺序输出 Markdown，供 SSE 使用。
+    """流式调用 LLM，并剥掉开头的重复 ## 标题行。"""
+    pending = ""
+    leading_stripped = False
+    async for chunk in stream_chat(user_msg, system=system, model=model, max_tokens=max_tokens):
+        pending += chunk
+        if not leading_stripped and (len(pending) > 80 or '\n\n' in pending):
+            pending = _strip_leading_heading(pending, heading).lstrip('\n')
+            leading_stripped = True
+        yield pending
+        pending = ""
+    if pending:
+        if not leading_stripped:
+            pending = _strip_leading_heading(pending, heading).lstrip('\n')
+        yield pending
 
-    顺序：数学背景 → 前置知识 → 完整证明 → 具体例子
-    每个板块均附来源归因；非流式节在后台并行生成。
-    """
+
+def _section_error_frame(section_id: str, message: str) -> str:
+    """结构化单卡错误，供 SSE 转成 section_error JSON。"""
+    safe = str(message).replace("-->", " ").replace("\n", " ").strip()
+    return f"<!--vp-section-error:{section_id}|{safe}-->"
+
+
+async def stream_card_background(
+    statement: str,
+    mactutor_task: asyncio.Task,
+    *,
+    kb_context: Optional[str],
+    lang: Optional[str],
+    model: Optional[str],
+) -> AsyncIterator[str]:
     _ls = lang_sys_suffix(lang)
     _kb_prefix = (kb_context + "\n\n") if kb_context else ""
 
-    # ── 后台并行启动非流式任务 ────────────────────────────────────────────────
-    mactutor_task = asyncio.create_task(
-        get_mactutor_context(statement, max_chars=2500)
-    )
-    prereq_task = asyncio.create_task(
-        prerequisite_map(statement, level=level, enrich_with_search=True, model=model)
-    )
-
-    # ── Card 1: 数学背景（流式；等待 MacTutor 史料后开始） ───────────────────
     yield _status_frame("background", "正在检索数学史料，梳理历史脉络…")
     yield "## 数学背景\n\n"
     source_url_for_card = ""
@@ -242,22 +244,9 @@ async def stream_learning_pipeline(
         history_user_msg += f"Mathematical statement:\n\n{statement}"
         history_sys = _HISTORY_SYSTEM + _ls
 
-        # 流式输出背景叙述
-        pending = ""
-        leading_stripped = False
-        async for chunk in stream_chat(history_user_msg, system=history_sys, model=model, max_tokens=3000):
-            pending += chunk
-            if not leading_stripped and (len(pending) > 80 or '\n\n' in pending):
-                pending = _strip_leading_heading(pending, "## 数学背景").lstrip('\n')
-                leading_stripped = True
-            yield pending
-            pending = ""
-        if pending:
-            if not leading_stripped:
-                pending = _strip_leading_heading(pending, "## 数学背景").lstrip('\n')
-            yield pending
+        async for chunk in _stream_stripped(history_user_msg, history_sys, model, 3000, "## 数学背景"):
+            yield chunk
 
-        # 来源归因
         if source_url_for_card:
             yield f"\n\n> 来源：[MacTutor History of Mathematics, University of St Andrews]({source_url_for_card})\n"
         elif mactutor_text:
@@ -265,10 +254,18 @@ async def stream_learning_pipeline(
         else:
             yield "\n\n> 来源：数学历史文献综合（MacTutor 检索不可用）\n"
     except Exception as e:
+        yield _section_error_frame("background", f"{type(e).__name__}: {e}")
         yield f"_背景生成失败：{type(e).__name__}: {e}_\n"
     yield "\n\n"
 
-    # ── Card 2: 前置知识 ──────────────────────────────────────────────────────
+
+async def stream_card_prereq(
+    statement: str,
+    prereq_task: asyncio.Task,
+    *,
+    level: str,
+    model: Optional[str],
+) -> AsyncIterator[str]:
     yield _status_frame("prereq", "正在整理前置知识…")
     yield "## 前置知识\n\n"
     try:
@@ -299,53 +296,129 @@ async def stream_learning_pipeline(
         else:
             yield "_本命题无显式前置依赖。_\n"
     except Exception as e:
+        yield _section_error_frame("prereq", f"{type(e).__name__}: {e}")
         yield f"_前置知识分析失败（{type(e).__name__}: {e}）。_\n"
     yield "\n\n"
 
-    # ── Card 3: 完整证明（流式） ──────────────────────────────────────────────
+
+async def stream_card_proof(
+    statement: str,
+    *,
+    kb_context: Optional[str],
+    lang: Optional[str],
+    model: Optional[str],
+) -> AsyncIterator[str]:
+    _ls = lang_sys_suffix(lang)
+    _kb_prefix = (kb_context + "\n\n") if kb_context else ""
+
     yield _status_frame("proof", "正在生成完整证明…")
     yield "## 完整证明\n\n"
     try:
         elab_user_msg = _kb_prefix + f"Write a complete proof and explanation for:\n\n{statement}"
         elab_sys = _ELABORATION_SYSTEM + _ls
-        pending = ""
-        leading_stripped = False
-        async for chunk in stream_chat(elab_user_msg, system=elab_sys, model=model, max_tokens=3000):
-            pending += chunk
-            if not leading_stripped and (len(pending) > 80 or '\n\n' in pending):
-                pending = _strip_leading_heading(pending, "## 完整证明").lstrip('\n')
-                leading_stripped = True
-            yield pending
-            pending = ""
-        if pending:
-            if not leading_stripped:
-                pending = _strip_leading_heading(pending, "## 完整证明").lstrip('\n')
-            yield pending
+        async for chunk in _stream_stripped(elab_user_msg, elab_sys, model, 3000, "## 完整证明"):
+            yield chunk
     except Exception as e:
+        yield _section_error_frame("proof", f"{type(e).__name__}: {e}")
         yield f"_阐释生成失败：{type(e).__name__}: {e}_\n"
     yield "\n\n"
 
-    # ── Card 4: 具体例子（流式，避免截断） ────────────────────────────────────
+
+async def stream_card_examples(
+    statement: str,
+    *,
+    kb_context: Optional[str],
+    lang: Optional[str],
+    model: Optional[str],
+) -> AsyncIterator[str]:
+    _ls = lang_sys_suffix(lang)
+    _kb_prefix = (kb_context + "\n\n") if kb_context else ""
+
     yield _status_frame("examples", "正在整理具体例子…")
     yield "## 具体例子\n\n"
     try:
         examples_user_msg = _kb_prefix + f"Provide concrete examples for:\n\n{statement}"
         examples_sys = _EXAMPLES_SYSTEM + _ls
-        pending = ""
-        leading_stripped = False
-        async for chunk in stream_chat(examples_user_msg, system=examples_sys, model=model, max_tokens=4000):
-            pending += chunk
-            if not leading_stripped and (len(pending) > 80 or '\n\n' in pending):
-                pending = _strip_leading_heading(pending, "## 具体例子").lstrip('\n')
-                leading_stripped = True
-            yield pending
-            pending = ""
-        if pending:
-            if not leading_stripped:
-                pending = _strip_leading_heading(pending, "## 具体例子").lstrip('\n')
-            yield pending
+        async for chunk in _stream_stripped(examples_user_msg, examples_sys, model, 4000, "## 具体例子"):
+            yield chunk
     except Exception as e:
+        yield _section_error_frame("examples", f"{type(e).__name__}: {e}")
         yield f"_例子生成失败：{type(e).__name__}: {e}_\n"
     yield "\n"
 
+
+async def stream_learning_pipeline(
+    statement: str,
+    *,
+    level: str = "undergraduate",
+    model: Optional[str] = None,
+    kb_context: Optional[str] = None,
+    lang: Optional[str] = None,
+) -> AsyncIterator[str]:
+    """流式版本：按节顺序输出 Markdown，供 SSE 使用。
+
+    顺序：数学背景 → 前置知识 → 完整证明 → 具体例子
+    每个板块均附来源归因；非流式节在后台并行生成。
+    """
+    mactutor_task = asyncio.create_task(
+        get_mactutor_context(statement, max_chars=2500)
+    )
+    prereq_task = asyncio.create_task(
+        prerequisite_map(statement, level=level, enrich_with_search=True, model=model)
+    )
+
+    async for chunk in stream_card_background(
+        statement, mactutor_task, kb_context=kb_context, lang=lang, model=model
+    ):
+        yield chunk
+
+    async for chunk in stream_card_prereq(statement, prereq_task, level=level, model=model):
+        yield chunk
+
+    async for chunk in stream_card_proof(statement, kb_context=kb_context, lang=lang, model=model):
+        yield chunk
+
+    async for chunk in stream_card_examples(statement, kb_context=kb_context, lang=lang, model=model):
+        yield chunk
+
     yield _status_frame("done", "完成")
+
+
+async def stream_learning_section(
+    section: str,
+    statement: str,
+    *,
+    level: str = "undergraduate",
+    model: Optional[str] = None,
+    kb_context: Optional[str] = None,
+    lang: Optional[str] = None,
+) -> AsyncIterator[str]:
+    """仅生成单卡（用于 /learn/section 重试）。"""
+    sid = section.strip().lower()
+    if sid not in SECTION_IDS:
+        raise ValueError(f"invalid section: {section}")
+
+    if sid == "background":
+        task = asyncio.create_task(get_mactutor_context(statement, max_chars=2500))
+        async for c in stream_card_background(
+            statement, task, kb_context=kb_context, lang=lang, model=model
+        ):
+            yield c
+        return
+
+    if sid == "prereq":
+        task = asyncio.create_task(
+            prerequisite_map(statement, level=level, enrich_with_search=True, model=model)
+        )
+        async for c in stream_card_prereq(statement, task, level=level, model=model):
+            yield c
+        return
+
+    if sid == "proof":
+        async for c in stream_card_proof(statement, kb_context=kb_context, lang=lang, model=model):
+            yield c
+        return
+
+    # examples
+    async for c in stream_card_examples(statement, kb_context=kb_context, lang=lang, model=model):
+        yield c

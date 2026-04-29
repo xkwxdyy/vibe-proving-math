@@ -2,6 +2,7 @@
 
 端点：
   POST /learn     学习模式（支持 SSE 流式）
+  POST /learn/section  学习模式单卡重生成
   POST /solve     研究模式-问题解决（支持 SSE 流式）
   POST /review    研究模式-论文审查
   GET  /search    TheoremSearch 透传
@@ -75,6 +76,17 @@ class LearnRequest(BaseModel):
     user_id: Optional[str] = "anonymous"
     model: Optional[str] = None
     stream: bool = True
+    lang: Optional[str] = None
+
+
+class LearnSectionRequest(BaseModel):
+    """单卡重生成：background | prereq | proof | examples"""
+
+    statement: str
+    section: str
+    level: str = "undergraduate"
+    model: Optional[str] = None
+    lang: Optional[str] = None
 
 
 class SolveRequest(BaseModel):
@@ -83,6 +95,8 @@ class SolveRequest(BaseModel):
     user_id: Optional[str] = "anonymous"
     model: Optional[str] = None
     stream: bool = True
+    lang: Optional[str] = None
+    text_attachments: Optional[list[str]] = None
 
 
 class ReviewRequest(BaseModel):
@@ -114,6 +128,8 @@ class FormalizeRequest(BaseModel):
     current_code: Optional[str] = None
     compile_error: Optional[str] = None
     skip_search: bool = False
+    # aristotle: Harmonic Aristotle API；pipeline: 本地 LLM + 验证
+    mode: Optional[str] = "aristotle"
 
 
 class ErrorResponse(BaseModel):
@@ -214,7 +230,7 @@ import re as _re_status
 import base64 as _b64
 # 同时识别 vp-status / vp-think / vp-result / vp-final；按出现顺序处理，避免乱序
 _FRAME_RE = _re_status.compile(
-    r"<!--vp-(status|think|result|final):([^>]*?)-->"
+    r"<!--vp-(status|think|result|final|section-error):([^>]*?)-->"
 )
 
 
@@ -284,6 +300,19 @@ async def _sse_generator(async_gen: AsyncIterator[str]):
                 if obj is not None:
                     key = "result" if kind == "result" else "final"
                     yield f"data: {json.dumps({key: obj}, ensure_ascii=False)}\n\n"
+            elif kind == "section-error":
+                if "|" in payload:
+                    sid, msg = payload.split("|", 1)
+                else:
+                    sid, msg = "unknown", payload
+                yield (
+                    "data: "
+                    + json.dumps(
+                        {"section_error": {"id": sid.strip(), "message": msg.strip()}},
+                        ensure_ascii=False,
+                    )
+                    + "\n\n"
+                )
             last_end = m.end()
         tail = chunk[last_end:] if last_end else chunk
         if tail:
@@ -352,14 +381,16 @@ async def learn(req: LearnRequest):
             # 记忆：检索历史（若 LATRACE 可用）
             mem_client = MemoryClient(user_id=req.user_id or "anonymous")
             memories = await mem_client.retrieve(req.project_id or "default", req.statement)
+            kb_text = None
             if memories:
-                mem_text = mem_client.format_memories_for_prompt(memories)
+                kb_text = mem_client.format_memories_for_prompt(memories)
                 yield f"<!-- memory_retrieved: {len(memories)} items -->"
-
             async for chunk in stream_learning_pipeline(
                 req.statement,
                 level=req.level,
                 model=req.model,
+                kb_context=kb_text,
+                lang=req.lang,
             ):
                 yield chunk
 
@@ -381,8 +412,42 @@ async def learn(req: LearnRequest):
             req.statement,
             level=req.level,
             model=req.model,
+            lang=req.lang,
         )
         return {"markdown": result.to_markdown(), "has_all_sections": result.has_required_sections()}
+
+
+@app.post("/learn/section")
+async def learn_section(req: LearnSectionRequest):
+    """学习模式单卡重生成，SSE 流式，仅返回该 section 的 Markdown 片段。"""
+    from modes.learning.pipeline import SECTION_IDS, stream_learning_section
+
+    if not req.statement or not req.statement.strip():
+        raise HTTPException(status_code=422, detail="statement 不能为空")
+    if len(req.statement) > 10000:
+        raise HTTPException(status_code=422, detail="statement 超过最大长度限制（10000字符）")
+    sid = (req.section or "").strip().lower()
+    if sid not in SECTION_IDS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"section 必须是其一：{', '.join(sorted(SECTION_IDS))}",
+        )
+
+    async def _gen():
+        async for chunk in stream_learning_section(
+            sid,
+            req.statement,
+            level=req.level,
+            model=req.model,
+            lang=req.lang,
+        ):
+            yield chunk
+
+    return StreamingResponse(
+        _sse_generator(_gen()),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 # ── 端点：/solve ──────────────────────────────────────────────────────────────
@@ -397,6 +462,8 @@ async def solve(req: SolveRequest):
 
     from modes.research.solver import solve as _solve
 
+    extra_ctx = "\n\n".join(req.text_attachments or [])
+
     if req.stream:
         async def _gen():
             import asyncio as _asyncio
@@ -410,7 +477,8 @@ async def solve(req: SolveRequest):
             yield "<!--vp-status:start|启动求解 pipeline…-->"
 
             solve_task = _asyncio.create_task(
-                _solve(req.statement, model=req.model, progress=_on_progress)
+                _solve(req.statement, model=req.model, progress=_on_progress,
+                       lang=req.lang, extra_context=extra_ctx)
             )
 
             # 消费 status 队列，直到 solve_task 完成
@@ -432,19 +500,6 @@ async def solve(req: SolveRequest):
 
             yield "<!--vp-status:done|证明流程完成-->"
             yield result.blueprint
-            yield f"\n\n---\n\n置信度: {result.confidence:.0%} ｜ 判定: {result.verdict}\n"
-            yield "\n## 引用核查\n"
-            if result.references:
-                for ref in result.references[:5]:
-                    status_icon = "✓" if ref["status"] == "verified" else "✗"
-                    yield f"- {status_icon} {ref['name'][:60]} ({ref['status']})\n"
-            else:
-                yield "- ✗ （未能核查到任何外部引用）(unverified)\n"
-            if result.obstacles:
-                yield "\n## 已知障碍\n"
-                for obs in result.obstacles:
-                    yield f"- {obs}\n"
-            yield "<!--vp-status:done|完成-->"
 
         return StreamingResponse(
             _sse_generator(_gen()),
@@ -452,7 +507,8 @@ async def solve(req: SolveRequest):
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
     else:
-        result = await _solve(req.statement, model=req.model)
+        result = await _solve(req.statement, model=req.model,
+                              lang=req.lang, extra_context=extra_ctx)
         return result.to_dict()
 
 
@@ -682,12 +738,48 @@ async def formalize(req: FormalizeRequest):
         current_code=req.current_code,
         compile_error=req.compile_error,
         skip_search=req.skip_search,
+        mode=(req.mode or "aristotle").strip().lower(),
     )
     return StreamingResponse(
         _sse_generator(gen),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+@app.get("/formalize/status/{job_id}")
+async def formalize_aristotle_status(job_id: str):
+    """查询 Harmonic Aristotle 任务状态（project_id）。"""
+    from aristotlelib.project import Project
+
+    from core.aristotle_client import ensure_aristotle_api_key_set, get_job_snapshot
+
+    try:
+        ensure_aristotle_api_key_set()
+    except ValueError as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+
+    try:
+        project = await Project.from_id(job_id)
+        await project.refresh()
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=f"Aristotle 查询失败: {e}") from e
+
+    snap = get_job_snapshot(job_id)
+    created = project.created_at.isoformat() if hasattr(project.created_at, "isoformat") else str(project.created_at)
+    updated = project.last_updated_at.isoformat() if hasattr(project.last_updated_at, "isoformat") else str(
+        project.last_updated_at
+    )
+    st = project.status.value if hasattr(project.status, "value") else str(project.status)
+    return {
+        "project_id": project.project_id,
+        "status": st,
+        "percent_complete": project.percent_complete,
+        "created_at": created,
+        "last_updated_at": updated,
+        "output_summary": project.output_summary,
+        "cached": snap,
+    }
 
 
 # ── 端点：/search ──────────────────────────────────────────────────────────────
@@ -748,6 +840,7 @@ async def health():
     from core.config import ts_cfg
     from modes.research.agent.tools import check_agent_tool_health
     from modes.formalization.verifier import check_kimina_health
+    from core.aristotle_client import check_aristotle_health
 
     cfg = llm_cfg()
 
@@ -785,8 +878,18 @@ async def health():
             logger.debug("health: TheoremSearch check failed: %s", exc)
             return "unreachable"
 
-    (latrace_status, latrace_detail), ts_status, kimina_status, paper_review_agent = await asyncio.gather(
-        _check_latrace(), _check_ts(), check_kimina_health(), check_agent_tool_health()
+    (
+        (latrace_status, latrace_detail),
+        ts_status,
+        kimina_status,
+        paper_review_agent,
+        aristotle_status,
+    ) = await asyncio.gather(
+        _check_latrace(),
+        _check_ts(),
+        check_kimina_health(),
+        check_agent_tool_health(),
+        check_aristotle_health(),
     )
 
     ts_cache = _ts_cache_stats()
@@ -821,6 +924,7 @@ async def health():
             },
             "kimina": kimina_status,
             "paper_review_agent": paper_review_agent,
+            "aristotle": aristotle_status,
         },
     }
     return result

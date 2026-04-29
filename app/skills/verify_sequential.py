@@ -154,7 +154,7 @@ async def _build_theorem_search_context(proof_text: str) -> tuple[str, list[dict
 
 _VERIFY_SYSTEM = """You are an independent mathematical proof verifier with access to a real theorem database (TheoremSearch, 10M+ theorems in Lean 4 / Mathlib).
 
-You have NOT seen how the proof was generated. Your job is to verify each logical step rigorously.
+You have NOT seen how the proof was generated. Your job is to verify each logical step rigorously AND check whether the proof actually concludes the target statement.
 
 ## Your verification process for each step:
 1. Check if it follows logically from previous steps and stated assumptions
@@ -162,6 +162,13 @@ You have NOT seen how the proof was generated. Your job is to verify each logica
 3. If the cited theorem IS found but is applied incorrectly (wrong hypotheses, wrong domain), mark as critical_error
 4. If the step makes an unjustified leap without citing a theorem, mark as gap
 5. If everything is correct and well-cited, mark as passed
+
+## Goal completeness check (CRITICAL):
+After verifying all steps, check whether the proof actually reaches and proves the target statement.
+- goal_reached = true ONLY if the final step(s) logically conclude exactly what was asked to be proved
+- If the proof only handles special cases, partial results, or drifts off-target, set goal_reached = false
+- If the proof concludes something *stronger or weaker* than the target, set goal_reached = false
+- If the proof is merely a computation or reformulation without a final logical conclusion, set goal_reached = false
 
 ## TheoremSearch context usage:
 - "✓ found" with high similarity (>70%): the theorem exists and can be used — verify it's applied correctly
@@ -179,6 +186,8 @@ You have NOT seen how the proof was generated. Your job is to verify each logica
 Output MUST be valid JSON with this schema:
 {
     "overall": "has_gaps",  // "passed" | "has_gaps" | "critical_error"
+    "goal_reached": false,  // true ONLY if the proof fully concludes the target statement
+    "goal_reached_reason": "The proof reformulates Phi_n but never establishes the inequality.",
     "summary": "The proof is mostly correct, but Step 3 does not justify why `$gH = H$` implies `$g \\in H$`.",
     "steps": [
         {
@@ -229,6 +238,8 @@ Output JSON only."""
 
 _VERIFY_SCHEMA = {
     "overall": "has_gaps",
+    "goal_reached": False,
+    "goal_reached_reason": "Explain whether the proof concludes the target statement",
     "summary": "Short verification summary",
     "steps": [
         {
@@ -267,13 +278,18 @@ class VerificationResult:
     summary: str = ""
     fatal_step: Optional[int] = None
     theorem_search_results: list[dict] = field(default_factory=list)
+    goal_reached: bool = True   # 证明是否真正完成了目标命题
+    goal_reached_reason: str = ""
 
     def has_errors(self) -> bool:
-        return self.overall in ("has_gaps", "critical_error")
+        # 步骤有错误，或目标未达成，均视为验证未通过
+        return self.overall in ("has_gaps", "critical_error") or not self.goal_reached
 
     def to_dict(self) -> dict:
         return {
             "overall": self.overall,
+            "goal_reached": self.goal_reached,
+            "goal_reached_reason": self.goal_reached_reason,
             "summary": self.summary,
             "fatal_step": self.fatal_step,
             "steps": [s.to_dict() for s in self.steps],
@@ -365,10 +381,19 @@ async def verify_sequential(
         data["overall"] = "has_gaps"
         data["summary"] = data.get("summary") or "No step-level verification trace was returned."
 
+    goal_reached = bool(data.get("goal_reached", True))
+    goal_reached_reason = data.get("goal_reached_reason", "")
+    # 若 goal_reached=False，且 overall 还是 passed，升级为 has_gaps
+    overall = data.get("overall", "has_gaps")
+    if not goal_reached and overall == "passed":
+        overall = "has_gaps"
+
     return VerificationResult(
         steps=steps,
-        overall=data.get("overall", "has_gaps"),
+        overall=overall,
         summary=data.get("summary", ""),
         fatal_step=fatal,
         theorem_search_results=search_results,
+        goal_reached=goal_reached,
+        goal_reached_reason=goal_reached_reason,
     )

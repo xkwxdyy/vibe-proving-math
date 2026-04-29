@@ -4,6 +4,8 @@ import asyncio
 import base64
 import json
 import os
+import re
+import time
 from typing import AsyncIterator, Optional
 
 from modes.formalization.models import (
@@ -16,6 +18,13 @@ from modes.formalization.models import (
     VerificationReport,
 )
 from modes.formalization.tools import FormalizationTools
+
+from core.aristotle_client import (
+    aristotle_runtime_settings,
+    download_lean_from_project,
+    ensure_aristotle_api_key_set,
+    register_job_snapshot,
+)
 
 MATHLIB_MATCH_THRESHOLD = 0.72
 _KEYWORD_STEP_TIMEOUT_SECONDS = float(os.environ.get("VP_FORMALIZE_TIMEOUT_KEYWORDS", "10"))
@@ -694,3 +703,334 @@ async def run_formalization(
         next_action_hint=_default_hint(last_verification.status, last_verification.failure_mode, lang=lang),
     )
     yield _final(result)
+
+
+def _contains_sorry(lean_code: str) -> bool:
+    return bool(re.search(r"\bsorry\b", lean_code or ""))
+
+
+def _aristotle_formalize_prompt(statement: str, *, lang: str) -> str:
+    if lang == "zh":
+        return (
+            "请将下列数学命题形式化为 Lean 4（使用 Mathlib）。\n\n"
+            f"命题：\n{statement.strip()}\n\n"
+            "要求：\n"
+            "- 使用 `import Mathlib`。\n"
+            "- 写出完整的 theorem 或 lemma 声明。\n"
+            "- 若暂时无法完成证明，证明部分可使用 `sorry` 占位。\n"
+        )
+    return (
+        "Formalize the following mathematical statement in Lean 4 using Mathlib.\n\n"
+        f"Statement:\n{statement.strip()}\n\n"
+        "Requirements:\n"
+        "- Use `import Mathlib`.\n"
+        "- Provide a complete theorem or lemma declaration.\n"
+        "- Use `sorry` as a placeholder for incomplete proofs if needed.\n"
+    )
+
+
+def _aristotle_prove_prompt(lean_code: str, *, lang: str) -> str:
+    if lang == "zh":
+        return (
+            "请补全下列 Lean 4 代码中所有的 `sorry`，给出可通过 Lean 检查的证明。"
+            "保持定理签名与已有声明不变，不要删除必要的 `import`。\n\n"
+            f"```lean\n{lean_code}\n```"
+        )
+    return (
+        "Fill in every `sorry` in the following Lean 4 code with a complete proof. "
+        "Keep theorem signatures and imports intact.\n\n"
+        f"```lean\n{lean_code}\n```"
+    )
+
+
+async def run_formalization_aristotle(
+    statement: str,
+    *,
+    lang: str = "zh",
+    skip_search: bool = False,
+    tools: Optional[FormalizationTools] = None,
+) -> AsyncIterator[str]:
+    """Harmonic Aristotle：定理检索快路径 → formalize 任务 →（可选）prove 任务。"""
+    from aristotlelib.project import Project, ProjectStatus
+
+    tools = tools or FormalizationTools()
+
+    def _status(step: str, msg: str) -> str:
+        return f"<!--vp-status:{step}|{msg}-->"
+
+    def _final(result: FormalizeResult) -> str:
+        payload = base64.b64encode(json.dumps(result.to_dict(), ensure_ascii=False).encode()).decode()
+        return f"<!--vp-final:{payload}-->"
+
+    ensure_aristotle_api_key_set()
+    rt = aristotle_runtime_settings()
+    poll_iv = max(1.0, float(rt["poll_interval_seconds"]))
+    t_form = float(rt["formalize_timeout_seconds"])
+    t_prov = float(rt["prove_timeout_seconds"])
+
+    retrieval_hits: list[RetrievalHit] = []
+    retrieval_candidates: list[dict] = []
+
+    if not skip_search:
+        yield _status("search", "正在 Mathlib 快速检索…" if lang == "zh" else "Searching Mathlib…")
+        try:
+            keywords = await asyncio.wait_for(
+                tools.extract_keywords(statement),
+                timeout=_KEYWORD_STEP_TIMEOUT_SECONDS,
+            )
+        except Exception:
+            keywords = []
+        try:
+            retrieval_hits, retrieval_candidates = await asyncio.wait_for(
+                tools.retrieve_context(statement, keywords=keywords),
+                timeout=_RETRIEVAL_STEP_TIMEOUT_SECONDS,
+            )
+        except Exception:
+            retrieval_hits, retrieval_candidates = [], []
+        if retrieval_candidates:
+            try:
+                best, score = await asyncio.wait_for(
+                    tools.validate_mathlib_match(statement, retrieval_candidates),
+                    timeout=_VALIDATION_STEP_TIMEOUT_SECONDS,
+                )
+            except Exception:
+                best, score = None, 0.0
+            if best and _is_retrieval_match_plausible(statement, best, score):
+                yield _status(
+                    "found",
+                    f"检索命中可直接复用的定理（置信度 {score:.0%}）"
+                    if lang == "zh"
+                    else f"Found reusable Mathlib theorem (confidence {score:.0%})",
+                )
+                yield _final(_mathlib_result(best, score, lang=lang))
+                return
+            yield _status(
+                "search",
+                "未命中直接复用，提交 Aristotle 自动形式化…"
+                if lang == "zh"
+                else "No direct Mathlib hit; submitting to Aristotle…",
+            )
+
+    yield _status(
+        "submit",
+        "正在提交 Aristotle 形式化任务…" if lang == "zh" else "Submitting Aristotle formalization job…",
+    )
+    project_f = await Project.create(prompt=_aristotle_formalize_prompt(statement, lang=lang))
+    register_job_snapshot(project_f.project_id, {"phase": "formalize", "kind": "aristotle"})
+
+    start_f = time.monotonic()
+    await project_f.refresh()
+    while project_f.status in (ProjectStatus.QUEUED, ProjectStatus.IN_PROGRESS):
+        elapsed = time.monotonic() - start_f
+        yield _status(
+            "poll",
+            (
+                f"Aristotle 形式化中… 任务 {project_f.project_id} · 已等待 {int(elapsed)}s"
+                if lang == "zh"
+                else f"Aristotle formalizing… job {project_f.project_id} · {int(elapsed)}s elapsed"
+            ),
+        )
+        if elapsed >= t_form:
+            err = (
+                f"形式化超时（>{int(t_form)}s）。任务 ID: {project_f.project_id}，可稍后查询状态。"
+                if lang == "zh"
+                else f"Formalization timeout (>{int(t_form)}s). Job id: {project_f.project_id}."
+            )
+            comp = {
+                "status": "timeout",
+                "error": err,
+                "failure_mode": "compile_timeout",
+                "verifier": "aristotle",
+                "passed": False,
+                "aristotle_formalize_project_id": project_f.project_id,
+            }
+            yield _final(
+                FormalizeResult(
+                    status="generated",
+                    lean_code="",
+                    error=err,
+                    compilation=comp,
+                    retrieval_context=[h.to_dict() for h in retrieval_hits[:8]],
+                    failure_mode="compile_timeout",
+                    next_action_hint=err,
+                )
+            )
+            return
+        await asyncio.sleep(poll_iv)
+        await project_f.refresh()
+
+    if project_f.status == ProjectStatus.FAILED:
+        err = (
+            "Aristotle 形式化任务失败（服务端错误）。请稍后重试。"
+            if lang == "zh"
+            else "Aristotle formalization failed (server error)."
+        )
+        yield _final(
+            FormalizeResult(
+                status="generated",
+                lean_code="",
+                error=err,
+                compilation={
+                    "status": "error",
+                    "error": err,
+                    "verifier": "aristotle",
+                    "passed": False,
+                    "aristotle_formalize_project_id": project_f.project_id,
+                },
+                retrieval_context=[h.to_dict() for h in retrieval_hits[:8]],
+                failure_mode="compile_error",
+                next_action_hint=err,
+            )
+        )
+        return
+
+    lean_formal = await download_lean_from_project(project_f)
+    if not lean_formal.strip() and project_f.output_summary:
+        lean_formal = str(project_f.output_summary or "")
+
+    formalize_id = project_f.project_id
+
+    if not _contains_sorry(lean_formal):
+        report = VerificationReport(
+            status="verified",
+            error="",
+            failure_mode="none",
+            diagnostics=[],
+            verifier="aristotle",
+            passed=True,
+        )
+        comp = report.to_dict()
+        comp["aristotle_formalize_project_id"] = formalize_id
+        yield _final(
+            FormalizeResult(
+                status="generated",
+                lean_code=lean_formal,
+                theorem_name="",
+                source="aristotle",
+                source_url=LEAN_PLAYGROUND_URL,
+                proof_status="complete" if lean_formal.strip() else "statement_only",
+                uses_mathlib="import Mathlib" in lean_formal,
+                confidence=1.0,
+                explanation="Aristotle（Harmonic）形式化结果",
+                compilation=comp,
+                iterations=1,
+                retrieval_context=[h.to_dict() for h in retrieval_hits[:8]],
+                failure_mode="none",
+                next_action_hint=_default_hint("verified", "none", lang=lang),
+            )
+        )
+        return
+
+    yield _status(
+        "compile",
+        "形式化完成，正在提交 Aristotle 证明任务（填补 sorry）…"
+        if lang == "zh"
+        else "Formalization done; submitting Aristotle proof job…",
+    )
+    prove_prompt = _aristotle_prove_prompt(lean_formal, lang=lang)
+    project_p = await Project.create(prompt=prove_prompt)
+    register_job_snapshot(project_p.project_id, {"phase": "prove", "kind": "aristotle", "parent_formalize_id": formalize_id})
+
+    start_p = time.monotonic()
+    await project_p.refresh()
+    while project_p.status in (ProjectStatus.QUEUED, ProjectStatus.IN_PROGRESS):
+        elapsed = time.monotonic() - start_p
+        yield _status(
+            "compile",
+            (
+                f"Aristotle 证明中… 任务 {project_p.project_id} · 已等待 {int(elapsed)}s"
+                if lang == "zh"
+                else f"Aristotle proving… job {project_p.project_id} · {int(elapsed)}s elapsed"
+            ),
+        )
+        if elapsed >= t_prov:
+            err = (
+                f"证明超时（>{int(t_prov)}s）。形式化任务 ID: {formalize_id}，证明任务 ID: {project_p.project_id}"
+                if lang == "zh"
+                else f"Proof timeout. formalize={formalize_id} prove={project_p.project_id}"
+            )
+            comp = {
+                "status": "timeout",
+                "error": err,
+                "failure_mode": "compile_timeout",
+                "verifier": "aristotle",
+                "passed": False,
+                "aristotle_formalize_project_id": formalize_id,
+                "aristotle_prove_project_id": project_p.project_id,
+            }
+            yield _final(
+                FormalizeResult(
+                    status="generated",
+                    lean_code=lean_formal,
+                    error=err,
+                    compilation=comp,
+                    retrieval_context=[h.to_dict() for h in retrieval_hits[:8]],
+                    failure_mode="compile_timeout",
+                    next_action_hint=err,
+                )
+            )
+            return
+        await asyncio.sleep(poll_iv)
+        await project_p.refresh()
+
+    if project_p.status == ProjectStatus.FAILED:
+        err = "Aristotle 证明任务失败。" if lang == "zh" else "Aristotle proof job failed."
+        comp = {
+            "status": "error",
+            "error": err,
+            "verifier": "aristotle",
+            "passed": False,
+            "aristotle_formalize_project_id": formalize_id,
+            "aristotle_prove_project_id": project_p.project_id,
+        }
+        yield _final(
+            FormalizeResult(
+                status="generated",
+                lean_code=lean_formal,
+                error=err,
+                compilation=comp,
+                retrieval_context=[h.to_dict() for h in retrieval_hits[:8]],
+                failure_mode="compile_error",
+                next_action_hint=err,
+            )
+        )
+        return
+
+    lean_final = await download_lean_from_project(project_p)
+    if not lean_final.strip():
+        lean_final = lean_formal
+
+    still_sorry = _contains_sorry(lean_final)
+    report = VerificationReport(
+        status="verified" if not still_sorry else "error",
+        error="" if not still_sorry else ("仍含 sorry" if lang == "zh" else "still contains sorry"),
+        failure_mode="none" if not still_sorry else "contains_sorry",
+        diagnostics=[],
+        verifier="aristotle",
+        passed=not still_sorry,
+    )
+    comp = report.to_dict()
+    comp["aristotle_formalize_project_id"] = formalize_id
+    comp["aristotle_prove_project_id"] = project_p.project_id
+
+    yield _status("compile", "✓ Aristotle 验证完成" if lang == "zh" else "✓ Aristotle run finished")
+
+    yield _final(
+        FormalizeResult(
+            status="generated",
+            lean_code=lean_final,
+            theorem_name="",
+            source="aristotle",
+            source_url=LEAN_PLAYGROUND_URL,
+            proof_status="complete" if not still_sorry else "partial",
+            uses_mathlib="import Mathlib" in lean_final,
+            confidence=1.0 if not still_sorry else 0.6,
+            explanation="Aristotle（Harmonic）证明结果",
+            compilation=comp,
+            iterations=2,
+            auto_optimized=True,
+            retrieval_context=[h.to_dict() for h in retrieval_hits[:8]],
+            failure_mode=report.failure_mode,
+            next_action_hint=_default_hint(report.status, report.failure_mode, lang=lang),
+        )
+    )

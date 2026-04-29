@@ -70,20 +70,230 @@ flowchart TB
 
 ## API 端点
 
+完整 OpenAPI 文档见 `GET /docs`（Swagger UI）。以下为各端点速查。
+
+---
+
+### 学习模式
+
+#### `POST /learn`
+
+为数学命题生成分层教学讲解（背景 / 前置知识 / 完整证明 / 例子 / 延伸阅读）。
+
+**请求体（JSON）：**
+
+| 字段 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `statement` | `string` | 必填 | 数学命题，≤ 10 000 字符 |
+| `level` | `string` | `"undergraduate"` | `"undergraduate"` \| `"graduate"` |
+| `stream` | `bool` | `true` | 为 `true` 时返回 SSE 流；`false` 返回完整 JSON |
+| `lang` | `string` | `null` | `"zh"` 强制中文输出 |
+| `model` | `string` | `null` | 覆盖默认 LLM（OpenRouter 模型 ID） |
+| `project_id` | `string` | `"default"` | 关联记忆项目 |
+| `user_id` | `string` | `"anonymous"` | 用户标识（用于记忆隔离） |
+
+**SSE 帧（`stream=true`）：** `{"chunk":"..."}` 正文 Markdown 片段；`{"status":"...","step":"..."}` 阶段进度；`[DONE]` 结束。
+
+**JSON 响应（`stream=false`）：** `{"markdown": "...", "has_all_sections": true}`
+
+---
+
+#### `POST /learn/section`
+
+单卡重生成：只重新生成学习报告中的某一个 section（SSE 流式）。
+
+**请求体（JSON）：**
+
+| 字段 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `statement` | `string` | 必填 | 原始命题 |
+| `section` | `string` | 必填 | `"background"` \| `"prereq"` \| `"proof"` \| `"examples"` \| `"extensions"` |
+| `level` | `string` | `"undergraduate"` | 同 `/learn` |
+| `lang` | `string` | `null` | 同 `/learn` |
+| `model` | `string` | `null` | 同 `/learn` |
+
+---
+
+### 研究求解
+
+#### `POST /solve`
+
+GVR（Generator–Verifier–Reviser）证明 pipeline，含 TheoremSearch 引用核查、反例测试与子目标分解。
+
+**请求体（JSON）：**
+
+| 字段 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `statement` | `string` | 必填 | 待证命题，≤ 10 000 字符 |
+| `stream` | `bool` | `true` | SSE 或 JSON |
+| `model` | `string` | `null` | 覆盖 LLM |
+| `project_id` | `string` | `"default"` | 项目标识 |
+| `user_id` | `string` | `"anonymous"` | 用户标识 |
+
+**JSON 响应（`stream=false`）：**
+
+```json
+{
+  "blueprint": "## 完整证明\n\n...",
+  "references": [{"name":"...", "status":"verified", "similarity":0.85, "link":"..."}],
+  "confidence": 0.83,
+  "verdict": "proved | partial | counterexample | No confident solution | direct_hit",
+  "obstacles": ["..."],
+  "subgoals": [...],
+  "verification": {"overall":"passed", "goal_reached":true, "steps":[...]},
+  "failed_paths": ["..."]
+}
+```
+
+**SSE 帧（`stream=true`）：** 进度帧 `{"status":"...","step":"search|proving|counterexample|decomposing|verifying|done"}`，完成后推送 Markdown 正文（含置信度与引用核查摘要）。
+
+---
+
+### 论文审查
+
+#### `POST /review`
+
+文本 / 图片输入，同步返回完整 JSON 审查报告（不推荐长文本，建议用流式端点）。
+
+**请求体（JSON）：**
+
+| 字段 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `proof_text` | `string` | `""` | LaTeX / Markdown 证明文本，≤ 50 000 字符 |
+| `images` | `string[]` | `null` | Base64 data URL 图片列表（与 `proof_text` 二选一或并用） |
+| `max_theorems` | `int` | `8` | 最多审查的定理数 |
+| `check_logic` | `bool` | `true` | 是否审查逻辑漏洞 |
+| `check_citations` | `bool` | `true` | 是否核查定理引用（TheoremSearch） |
+| `check_symbols` | `bool` | `true` | 是否检查符号一致性 |
+| `lang` | `string` | `null` | 输出语言 |
+| `model` | `string` | `null` | 覆盖 LLM |
+
+---
+
+#### `POST /review_stream`
+
+同 `/review`，SSE 流式输出，逐条推送各定理审查结果。
+
+**SSE 帧类型：**
+
+| 帧 | 含义 |
+|----|------|
+| `{"status":"...","step":"..."}` | 阶段进度 |
+| `{"result":{"kind":"theorem","index":N,"data":{...}}}` | 单条定理审查结果（逐步推送） |
+| `{"final":{...}}` | 最终汇总报告 |
+| `[DONE]` | 结束 |
+
+---
+
+#### `POST /review_pdf_stream`
+
+PDF / 图片 / LaTeX 文件上传审查（multipart/form-data），SSE 流式。
+
+**表单字段：**
+
+| 字段 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `file` | `file` | 必填 | `.pdf` / `.png` / `.jpg` / `.tex` / `.txt` / `.md` |
+| `max_theorems` | `int` | `8` | 最多审查定理数（非 PDF 路径有效） |
+| `check_logic` | `bool` | `true` | 逻辑审查 |
+| `check_citations` | `bool` | `true` | 引用核查 |
+| `check_symbols` | `bool` | `true` | 符号一致性 |
+| `nanonets_api_key` | `string` | `null` | 覆盖 Nanonets OCR Key（PDF 路径） |
+| `lang` | `string` | `null` | 输出语言 |
+| `model` | `string` | `null` | 覆盖 LLM |
+
+> PDF 文件会通过 Nanonets OCR 提取文本，再按章节切分进行结构化审查。
+
+---
+
+### 自动形式化
+
+#### `POST /formalize`
+
+将自然语言数学命题形式化为 Lean 4 代码（Beta），SSE 流式。
+
+**请求体（JSON）：**
+
+| 字段 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `statement` | `string` | 必填 | 待形式化的数学命题 |
+| `mode` | `string` | `"aristotle"` | `"aristotle"`（Harmonic Aristotle API）\| `"pipeline"`（本地 LLM + 验证） |
+| `lang` | `string` | `"zh"` | 提示语言 |
+| `max_iters` | `int` | `4` | `pipeline` 模式最大迭代修复轮次 |
+| `current_code` | `string` | `null` | 已有 Lean 代码（用于增量修复） |
+| `compile_error` | `string` | `null` | 上轮编译错误（用于增量修复） |
+| `skip_search` | `bool` | `false` | 跳过 Mathlib 关键词检索 |
+| `model` | `string` | `null` | 覆盖 LLM |
+
+---
+
+#### `GET /formalize/status/{job_id}`
+
+查询 Harmonic Aristotle 形式化任务状态。
+
+**路径参数：** `job_id` —— `/formalize`（Aristotle 模式）返回的 `project_id`。
+
+**响应：**
+
+```json
+{
+  "project_id": "...",
+  "status": "pending | running | completed | failed",
+  "percent_complete": 75,
+  "created_at": "...",
+  "last_updated_at": "...",
+  "output_summary": "...",
+  "cached": null
+}
+```
+
+---
+
+### 工具端点
+
+#### `GET /search`
+
+TheoremSearch 透传，搜索 Lean 4 / Mathlib 定理库（1 000 万+ 定理）。
+
+**查询参数：**
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `q` | `string` | 必填 | 搜索词（自然语言或数学表达式） |
+| `top_k` | `int` | `10` | 返回条数（1–50） |
+| `min_similarity` | `float` | `0.0` | 最低相似度阈值（0.0–1.0） |
+
+**响应：** `{"query":"...","count":N,"results":[{"name":"...","body":"...","similarity":0.85,"link":"...",...}]}`
+
+---
+
+#### `POST /projects`
+
+创建记忆隔离项目（学习模式长期记忆的命名空间，MVP 阶段内存存储）。
+
+**请求体（JSON）：** `{"project_id":"p1","name":"代数拓扑笔记","description":"...","user_id":"alice"}`
+
+#### `GET /projects`
+
+列出用户的所有项目。**查询参数：** `user_id`（默认 `"anonymous"`）。
+
+---
+
+#### `GET /health`
+
+服务健康检查，并发探活 LATRACE、TheoremSearch、Kimina 验证器、Aristotle。
+
+**响应字段：** `status`（`"ok"` / `"degraded"`）、`version`、`timestamp`、`llm`（当前模型信息）、`dependencies`（各依赖详情与缓存统计）。
+
+---
+
+### 其他
+
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| POST | `/learn` | 学习模式；支持 SSE |
-| POST | `/solve` | 研究求解；支持 SSE |
-| POST | `/review` | 论文/证明审查 |
-| POST | `/review_stream` | 审查流式 |
-| POST | `/review_pdf_stream` | PDF 上传审查流式 |
-| POST | `/formalize` | Lean 形式化（Beta）；SSE |
-| GET | `/search` | TheoremSearch 检索 |
-| POST | `/projects` | 创建项目（当前 MVP） |
-| GET | `/projects` | 列出项目 |
-| GET | `/health` | 健康检查与依赖状态 |
-| GET | `/docs` | OpenAPI（Swagger UI） |
-| — | `/ui/` | 单页前端（静态托管） |
+| GET | `/docs` | OpenAPI Swagger UI（自动生成） |
+| GET | `/ui/` | 单页前端（静态托管） |
+| GET | `/` | 重定向至 `/ui/` |
 
 ## 快速开始
 

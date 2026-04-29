@@ -90,7 +90,10 @@ def test_formalize_auto_repairs_until_verified(monkeypatch):
     monkeypatch.setattr(pipeline, "_try_compile_lean", fake_compile)
 
     client = TestClient(app)
-    events = _collect_sse_events(client, {"statement": "True 命题", "lang": "zh", "max_iters": 4})
+    events = _collect_sse_events(
+        client,
+        {"statement": "True 命题", "lang": "zh", "max_iters": 4, "mode": "pipeline"},
+    )
 
     status_steps = [e["step"] for e in events if e["kind"] == "status"]
     assert "generate" in status_steps
@@ -213,6 +216,7 @@ def test_formalize_returns_mathlib_match_before_generation(monkeypatch):
             "statement": "对任意实数 a, b，证明 a^2 + b^2 ≥ 2ab。",
             "lang": "zh",
             "max_iters": 2,
+            "mode": "pipeline",
         },
     )
 
@@ -227,3 +231,140 @@ def test_formalize_returns_mathlib_match_before_generation(monkeypatch):
     assert final["compilation"]["status"] == "mathlib_verified"
     assert final["selected_candidate"]["origin"] == "mathlib4"
     assert called == {"extract": 1, "validate": 1}
+
+
+def test_formalize_aristotle_mocked_streams_final(monkeypatch):
+    import base64
+    import json
+
+    import modes.formalization.pipeline as pipeline
+
+    async def fake_aristotle(statement, *, lang="zh", skip_search=False, tools=None):
+        yield "<!--vp-status:submit|submitted-->"
+        payload = {
+            "status": "generated",
+            "lean_code": "theorem demo : True := trivial",
+            "source": "aristotle",
+            "compilation": {
+                "status": "verified",
+                "verifier": "aristotle",
+                "passed": True,
+                "aristotle_formalize_project_id": "job_formal_1",
+                "aristotle_prove_project_id": "job_prove_1",
+            },
+            "failure_mode": "none",
+            "next_action_hint": "",
+        }
+        enc = base64.b64encode(json.dumps(payload, ensure_ascii=False).encode()).decode()
+        yield f"<!--vp-final:{enc}-->"
+
+    monkeypatch.setattr("core.aristotle_client.is_aristotle_enabled", lambda: True)
+    monkeypatch.setattr(pipeline, "run_formalization_aristotle", fake_aristotle)
+
+    client = TestClient(app)
+    events = _collect_sse_events(client, {"statement": "True", "lang": "zh", "mode": "aristotle"})
+    final = next(e["data"] for e in events if e["kind"] == "final")
+    assert final["source"] == "aristotle"
+    assert final["compilation"]["aristotle_formalize_project_id"] == "job_formal_1"
+
+
+def test_formalize_aristotle_disabled_uses_pipeline(monkeypatch):
+    from modes.formalization.models import FormalizationBlueprint, FormalizationCandidate
+
+    import modes.formalization.pipeline as pipeline
+
+    async def fake_extract_keywords(statement: str) -> list[str]:
+        return []
+
+    async def fake_search(keywords: list[str], top_k: int = 6) -> list[dict]:
+        return []
+
+    async def fake_retrieve(statement: str, *, keywords: list[str]):
+        return [], []
+
+    async def fake_plan(statement, retrieval_hits, **kwargs):
+        return FormalizationBlueprint(
+            goal_summary="demo",
+            target_shape="theorem demo : True",
+            strategy="",
+            notes=[],
+            revision=0,
+        )
+
+    async def fake_gen(statement, blueprint, retrieval_hits, **kwargs):
+        return FormalizationCandidate(
+            lean_code="theorem demo : True := by trivial",
+            theorem_statement="theorem demo : True",
+            uses_mathlib=False,
+            proof_status="complete",
+            explanation="mock",
+            confidence=0.9,
+            origin="generated",
+            blueprint_revision=0,
+        )
+
+    async def fake_compile(lean_code: str) -> dict:
+        return {"status": "verified", "error": "", "passed": True}
+
+    monkeypatch.setattr("core.aristotle_client.is_aristotle_enabled", lambda: False)
+    monkeypatch.setattr(pipeline, "_extract_keywords", fake_extract_keywords)
+    monkeypatch.setattr(pipeline, "_search_github_mathlib", fake_search)
+    monkeypatch.setattr(pipeline, "_retrieve_context", fake_retrieve)
+    monkeypatch.setattr(pipeline, "_plan_blueprint", fake_plan)
+    monkeypatch.setattr(pipeline, "_generate_candidate", fake_gen)
+    monkeypatch.setattr(pipeline, "_try_compile_lean", fake_compile)
+
+    client = TestClient(app)
+    events = _collect_sse_events(
+        client,
+        {"statement": "True", "lang": "zh", "mode": "aristotle"},
+    )
+    final = next(e["data"] for e in events if e["kind"] == "final")
+    assert final["compilation"]["status"] == "verified"
+    assert final.get("source") == "generated"
+
+
+def test_formalize_aristotle_poll_steps_visible(monkeypatch):
+    import modes.formalization.pipeline as pipeline
+
+    async def fake_aristotle(statement, *, lang="zh", skip_search=False, tools=None):
+        yield "<!--vp-status:poll|waiting-->"
+        yield "<!--vp-status:compile|done-->"
+
+    monkeypatch.setattr("core.aristotle_client.is_aristotle_enabled", lambda: True)
+    monkeypatch.setattr(pipeline, "run_formalization_aristotle", fake_aristotle)
+
+    client = TestClient(app)
+    events = _collect_sse_events(client, {"statement": "x", "mode": "aristotle"})
+    steps = [e["step"] for e in events if e["kind"] == "status"]
+    assert "poll" in steps or "compile" in steps
+
+
+def test_formalize_status_endpoint_mocked(monkeypatch):
+    from datetime import datetime, timezone
+
+    from aristotlelib.project import Project, ProjectStatus
+
+    class FakeProject:
+        project_id = "tid"
+        status = ProjectStatus.COMPLETE
+        created_at = datetime.now(timezone.utc)
+        last_updated_at = datetime.now(timezone.utc)
+        percent_complete = 100
+        output_summary = None
+
+        async def refresh(self):
+            pass
+
+    async def fake_from_id(cls, project_id: str):
+        return FakeProject()
+
+    monkeypatch.setattr("core.aristotle_client.ensure_aristotle_api_key_set", lambda: None)
+    monkeypatch.setattr(Project, "from_id", classmethod(fake_from_id))
+
+    client = TestClient(app)
+    r = client.get("/formalize/status/tid")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["project_id"] == "tid"
+    assert body["status"] == "COMPLETE"

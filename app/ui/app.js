@@ -92,6 +92,16 @@ const I18N = {
                 confidence: '置信度', citations: '引用',
                 memHint: '已检索 {n} 条历史知识' },
       accordion: { background: '数学背景', prereq: '前置知识', proof: '完整证明', examples: '具体例子', extensions: '延伸阅读' },
+      learn: {
+        statusPending: '排队中',
+        statusRunning: '生成中…',
+        statusDone: '已完成',
+        statusError: '失败',
+        generatingHint: '正在生成本节…',
+        waitTip: '四张卡片将分阶段填充，请稍候…',
+        sectionFailed: '该节生成失败：',
+        retrySection: '重新生成此节',
+      },
       search: { noResult: '未找到相关定理', similarity: '相关度' },
       review: { overall: '整体判定', theorem: '定理' },
       role: { user: '你', ai: 'AI' },
@@ -177,7 +187,7 @@ const I18N = {
       searching:      { title: 'Theorem Search',  desc: 'Search 10M+ theorems and get real sources' },
       projects:       { title: 'Projects',        desc: 'Save, organize and resume your research projects' },
       history:        { title: 'History',         desc: 'Browse recent sessions and resume any conversation' },
-      formalization:  { title: 'Formalization', desc: 'Convert math statements to Lean 4: search mathlib4 · auto-formalize · local compile verification' },
+      formalization:  { title: 'Formalization', desc: 'Lean 4 via Harmonic Aristotle (mathlib search · cloud prove); pipeline mode for local LLM fallback' },
     },
     modes: {
       learning: 'Learning', solving: 'Solving',
@@ -234,6 +244,16 @@ const I18N = {
                 confidence: 'Confidence', citations: 'Citations',
                 memHint: 'Retrieved {n} memories' },
       accordion: { background: 'Background', prereq: 'Prerequisites', proof: 'Complete Exposition', examples: 'Examples', extensions: 'Further reading' },
+      learn: {
+        statusPending: 'Queued',
+        statusRunning: 'Generating…',
+        statusDone: 'Done',
+        statusError: 'Failed',
+        generatingHint: 'Generating…',
+        waitTip: 'Four sections will stream in sequence…',
+        sectionFailed: 'This section failed:',
+        retrySection: 'Regenerate this section',
+      },
       search: { noResult: 'No theorems found', similarity: 'Similarity' },
       review: { overall: 'Overall verdict', theorem: 'Theorem' },
       role: { user: 'You', ai: 'AI' },
@@ -1091,25 +1111,202 @@ const AppState = {
 };
 
 /* ─────────────────────────────────────────────────────────────
-   5.1 附件管理（DeepSeek 风格 chip）
+   5.1 PDF.js 懒加载 & PDF 元数据读取
+───────────────────────────────────────────────────────────── */
+const _PDFJS_VERSION = '3.11.174';
+let _pdfJsReady = null;
+
+function _ensurePdfJs() {
+  if (_pdfJsReady) return _pdfJsReady;
+  _pdfJsReady = new Promise((resolve, reject) => {
+    if (window.pdfjsLib) { resolve(window.pdfjsLib); return; }
+    const s = document.createElement('script');
+    s.src = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${_PDFJS_VERSION}/pdf.min.js`;
+    s.onload = () => {
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc =
+        `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${_PDFJS_VERSION}/pdf.worker.min.js`;
+      resolve(window.pdfjsLib);
+    };
+    s.onerror = (err) => { _pdfJsReady = null; reject(err); };
+    document.head.appendChild(s);
+  });
+  return _pdfJsReady;
+}
+
+async function _loadPdfMeta(file, attachment) {
+  try {
+    const pdfjs = await _ensurePdfJs();
+    const buf = await file.arrayBuffer();
+    const pdf = await pdfjs.getDocument({ data: buf }).promise;
+    attachment.pageCount = pdf.numPages;
+
+    const thumbCount = Math.min(3, pdf.numPages);
+    const thumbnails = [];
+    for (let i = 1; i <= thumbCount; i++) {
+      const page = await pdf.getPage(i);
+      const viewport = page.getViewport({ scale: 0.35 });
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.round(viewport.width);
+      canvas.height = Math.round(viewport.height);
+      const ctx = canvas.getContext('2d');
+      await page.render({ canvasContext: ctx, viewport }).promise;
+      thumbnails.push(canvas.toDataURL('image/jpeg', 0.7));
+    }
+    attachment.thumbnails = thumbnails;
+    pdf.destroy();
+  } catch (e) {
+    console.warn('[PDF.js] meta load failed:', e);
+    attachment.pageCount = null;
+    attachment.thumbnails = [];
+  }
+  Attachments.render();
+}
+
+/* ─────────────────────────────────────────────────────────────
+   5.2 PDF 缩略图 Tooltip
+───────────────────────────────────────────────────────────── */
+let _thumbTooltipEl = null;
+
+function _showPdfThumbTooltip(chipEl, thumbnails) {
+  _hidePdfThumbTooltip();
+  if (!thumbnails?.length) return;
+
+  const tooltip = document.createElement('div');
+  tooltip.className = 'pdf-thumb-tooltip';
+  tooltip.innerHTML = thumbnails.map(src =>
+    `<img class="pdf-thumb-img" src="${src}" alt="">`
+  ).join('');
+  document.body.appendChild(tooltip);
+  _thumbTooltipEl = tooltip;
+
+  requestAnimationFrame(() => {
+    const rect = chipEl.getBoundingClientRect();
+    const ttH = tooltip.offsetHeight || 134;
+    const ttW = tooltip.offsetWidth || (thumbnails.length * 88 + 22);
+    let top = rect.top - ttH - 8;
+    if (top < 8) top = rect.bottom + 8;
+    let left = rect.left;
+    if (left + ttW > window.innerWidth - 8) left = window.innerWidth - ttW - 8;
+    if (left < 8) left = 8;
+    tooltip.style.top = `${top}px`;
+    tooltip.style.left = `${left}px`;
+    tooltip.style.opacity = '1';
+  });
+}
+
+function _hidePdfThumbTooltip() {
+  if (_thumbTooltipEl) {
+    _thumbTooltipEl.remove();
+    _thumbTooltipEl = null;
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────
+   5.3 PDF 全屏查看器
+───────────────────────────────────────────────────────────── */
+function openPdfViewer(url, name, pageCount) {
+  const modal = document.getElementById('pdf-viewer-modal');
+  if (!modal) return;
+  const titleEl = document.getElementById('pdf-viewer-title');
+  const pagesEl = document.getElementById('pdf-viewer-pages');
+  const iframe = document.getElementById('pdf-viewer-iframe');
+  if (titleEl) titleEl.textContent = name || '';
+  if (pagesEl) pagesEl.textContent = pageCount ? `${pageCount} 页` : '';
+  if (iframe) iframe.src = url;
+  modal.style.display = 'flex';
+
+  const _onKey = (e) => {
+    if (e.key === 'Escape') { closePdfViewer(); document.removeEventListener('keydown', _onKey); }
+  };
+  document.addEventListener('keydown', _onKey);
+}
+
+function closePdfViewer() {
+  const modal = document.getElementById('pdf-viewer-modal');
+  if (!modal) return;
+  const iframe = document.getElementById('pdf-viewer-iframe');
+  if (iframe) iframe.src = '';
+  modal.style.display = 'none';
+}
+
+/* ─────────────────────────────────────────────────────────────
+   5.3b PDF 缩略图画廊（聊天气泡点击后弹出）
+───────────────────────────────────────────────────────────── */
+function openPdfGallery(thumbnails, name, pageCount, objectUrl) {
+  const modal = document.getElementById('pdf-gallery-modal');
+  if (!modal) return;
+
+  const titleEl = document.getElementById('pdf-gallery-title');
+  const pagesEl = document.getElementById('pdf-gallery-pages');
+  const bodyEl  = document.getElementById('pdf-gallery-body');
+  const footerEl = document.getElementById('pdf-gallery-footer');
+
+  if (titleEl) titleEl.textContent = name || '';
+  if (pagesEl) pagesEl.textContent = pageCount ? `${pageCount} 页` : '';
+
+  if (bodyEl) {
+    if (thumbnails && thumbnails.length) {
+      bodyEl.innerHTML = thumbnails.map((src, i) => `
+        <div class="pdf-gallery-img-wrap">
+          <img class="pdf-gallery-img" src="${src}" alt="第 ${i + 1} 页">
+          <div class="pdf-gallery-img-label">第 ${i + 1} 页</div>
+        </div>`).join('');
+    } else {
+      bodyEl.innerHTML = `<p style="color:var(--text-muted);padding:20px;">暂无缩略图预览</p>`;
+    }
+  }
+
+  if (footerEl) {
+    footerEl.innerHTML = objectUrl
+      ? `<button class="pdf-gallery-open-btn" onclick="openPdfViewer('${objectUrl}','${(name||'').replace(/'/g,"\\'")}',${pageCount||0});closePdfGallery()">在全屏查看器中打开</button>`
+      : '';
+    footerEl.style.display = objectUrl ? '' : 'none';
+  }
+
+  modal.style.display = 'flex';
+
+  const _onKey = (e) => {
+    if (e.key === 'Escape') { closePdfGallery(); document.removeEventListener('keydown', _onKey); }
+  };
+  document.addEventListener('keydown', _onKey);
+}
+
+function closePdfGallery() {
+  const modal = document.getElementById('pdf-gallery-modal');
+  if (modal) modal.style.display = 'none';
+}
+
+/* ─────────────────────────────────────────────────────────────
+   5.4 附件管理（DeepSeek 风格 chip）
 ───────────────────────────────────────────────────────────── */
 const Attachments = {
   add(file, content, rawFile) {
-    AppState.settings.attachments.push({
+    const isPdf = /\.pdf$/i.test(file.name);
+    const att = {
       name: file.name,
       size: file.size,
-      content,      // text content (null for PDFs)
-      rawFile: rawFile || null,  // raw File object for PDFs
-    });
+      content,
+      rawFile: rawFile || null,
+      pageCount: null,
+      objectUrl: (isPdf && rawFile) ? URL.createObjectURL(rawFile) : null,
+      thumbnails: [],
+    };
+    AppState.settings.attachments.push(att);
     this.render();
     updateInputPlaceholder();
+    if (isPdf && rawFile) _loadPdfMeta(rawFile, att);
   },
   remove(idx) {
+    const att = AppState.settings.attachments[idx];
+    if (att?.objectUrl) URL.revokeObjectURL(att.objectUrl);
     AppState.settings.attachments.splice(idx, 1);
     this.render();
     updateInputPlaceholder();
   },
   clear() {
+    (AppState.settings.attachments || []).forEach(att => {
+      if (att?.objectUrl) URL.revokeObjectURL(att.objectUrl);
+    });
     AppState.settings.attachments = [];
     this.render();
     updateInputPlaceholder();
@@ -1123,10 +1320,15 @@ const Attachments = {
     if (!visible) { el.innerHTML = ''; return; }
     const removeLabel = AppState.lang === 'zh' ? '移除' : 'Remove';
     el.innerHTML = list.map((a, i) => {
-      const icon = /\.pdf$/i.test(a.name) ? '📕' : '📎';
-      const meta = a.rawFile ? `${(a.size / 1024 / 1024).toFixed(1)}MB` : `${(a.size / 1024).toFixed(1)}KB`;
+      const isPdf = /\.pdf$/i.test(a.name);
+      const icon = isPdf ? '📕' : '📎';
+      const pageStr = (isPdf && a.pageCount) ? ` · ${a.pageCount} 页` : '';
+      const meta = a.rawFile
+        ? `${(a.size / 1024 / 1024).toFixed(1)}MB${pageStr}`
+        : `${(a.size / 1024).toFixed(1)}KB`;
+      const clickable = isPdf && a.objectUrl ? ' data-pdf-open="1"' : '';
       return `
-      <div class="attachment-chip" data-idx="${i}">
+      <div class="attachment-chip${isPdf ? ' is-pdf' : ''}" data-idx="${i}"${clickable}>
         <span class="attachment-chip-icon">${icon}</span>
         <span class="attachment-chip-name" title="${escapeHtml(a.name)}">${escapeHtml(a.name)}</span>
         <span class="attachment-chip-meta">${meta}</span>
@@ -1134,12 +1336,32 @@ const Attachments = {
                 aria-label="${removeLabel}" title="${removeLabel}">✕</button>
       </div>`;
     }).join('');
+
     el.querySelectorAll('[data-rm]').forEach(btn => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
         const idx = parseInt(btn.dataset.rm, 10);
         if (Number.isFinite(idx)) Attachments.remove(idx);
       });
+    });
+
+    el.querySelectorAll('.is-pdf[data-pdf-open]').forEach(chip => {
+      chip.addEventListener('click', () => {
+        const idx = parseInt(chip.dataset.idx, 10);
+        if (!Number.isFinite(idx)) return;
+        const att = (AppState.settings.attachments || [])[idx];
+        if (att?.objectUrl) openPdfViewer(att.objectUrl, att.name, att.pageCount);
+      });
+    });
+
+    el.querySelectorAll('.is-pdf').forEach(chip => {
+      chip.addEventListener('mouseenter', () => {
+        const idx = parseInt(chip.dataset.idx, 10);
+        if (!Number.isFinite(idx)) return;
+        const att = (AppState.settings.attachments || [])[idx];
+        if (att?.thumbnails?.length) _showPdfThumbTooltip(chip, att.thumbnails);
+      });
+      chip.addEventListener('mouseleave', _hidePdfThumbTooltip);
     });
   },
   /** 拼接附件 + 用户附加输入文字 → 后端用的 proof_text。 */
@@ -1290,7 +1512,10 @@ function restoreSession(session) {
   if (titleEl) titleEl.textContent = session.title;
 
   container.innerHTML = '';
-  (session.messages || []).forEach(msg => addMessage(msg.role, msg.content, { noSave: true }));
+  (session.messages || []).forEach(msg => addMessage(msg.role, msg.content, {
+    noSave: true,
+    pdfAttachments: msg.pdfAttachments,
+  }));
 }
 
 /* plan F.3 (T50)：刚切换到 chat 但还没消息时，给一个友好的空状态引导，
@@ -1340,14 +1565,12 @@ function _ensureChatEmptyState() {
     },
     reviewing: {
       zh: [
-        { label: 'Lagrange 定理（群论）', text: '**定理**：设 $G$ 是有限群，$H$ 是 $G$ 的子群，则 $|H|$ 整除 $|G|$。\n\n**证明**：考虑 $G$ 关于 $H$ 的左陪集分解。对任意 $g \\in G$，定义左陪集 $gH = \\{gh \\mid h \\in H\\}$。\n\n首先，$gH$ 与 $H$ 等势，因为映射 $h \\mapsto gh$ 是双射。\n\n其次，两个左陪集 $g_1H$ 和 $g_2H$ 要么相等，要么不交。证明：若 $g_1H \\cap g_2H \\neq \\emptyset$，取 $x \\in g_1H \\cap g_2H$，则 $x = g_1h_1 = g_2h_2$，得 $g_1 = g_2h_2h_1^{-1} \\in g_2H$，故 $g_1H \\subseteq g_2H$。对称地 $g_2H \\subseteq g_1H$，因此 $g_1H = g_2H$。\n\n因此 $G$ 被划分为若干两两不交的左陪集，设有 $k$ 个陪集，则 $|G| = k|H|$，即 $|H|$ 整除 $|G|$。$\\square$' },
-        { label: '行列式与特征值', text: '**定理**：$n$ 阶方阵的行列式等于其特征值之积。\n\n**证明**：设 $A$ 是 $n$ 阶复方阵，特征值为 $\\lambda_1, \\ldots, \\lambda_n$（重根按重数计）。\n\n在复数域上，$A$ 相似于 Jordan 标准型 $J$，即存在可逆矩阵 $P$ 使得 $A = PJP^{-1}$。\n\n由行列式的相似不变性：$\\det(A) = \\det(PJP^{-1}) = \\det(P)\\det(J)\\det(P^{-1}) = \\det(J)$。\n\nJordan 标准型 $J$ 是分块对角矩阵，每个 Jordan 块对应一个特征值。$J$ 是上三角矩阵，其行列式等于主对角线元素之积，即 $\\det(J) = \\lambda_1 \\cdots \\lambda_n$。\n\n因此 $\\det(A) = \\lambda_1 \\cdots \\lambda_n$。$\\square$' },
-        { label: '素数无穷性（欧几里得）', text: '**定理**：素数有无穷多个。\n\n**证明**（欧几里得）：假设素数只有有限个，记为 $p_1, p_2, \\ldots, p_n$。\n\n考察数 $N = p_1 p_2 \\cdots p_n + 1$。\n\n由于 $N > 1$，根据算术基本定理，$N$ 可分解为素因数之积。设 $p$ 是 $N$ 的某个素因数。\n\n若 $p$ 是 $p_1, \\ldots, p_n$ 中的某个，不妨设 $p = p_i$，则 $p \\mid p_1 \\cdots p_n$ 且 $p \\mid N$，故 $p \\mid (N - p_1 \\cdots p_n) = 1$，矛盾。\n\n因此 $p$ 不在 $\\{p_1, \\ldots, p_n\\}$ 中，这与"所有素数为 $p_1, \\ldots, p_n$"矛盾。\n\n故素数有无穷多个。$\\square$' },
+        { label: 'Lemma 2.1（共轭类整除性证明）', text: '**引理 2.1**（消失元论文，§2）\n设 $G$ 是有限群，$N$ 是 $G$ 的正规子群。则：\n(i) 对任意 $x \\in N$，$|x^N|$ 整除 $|x^G|$；\n(ii) 对任意 $g \\in G$，$|(gN)^{G/N}|$ 整除 $|g^G|$。\n\n**证明**：\n(i) 由共轭类-稳定子定理，$|x^N| = [N : C_N(x)]$ 且 $|x^G| = [G : C_G(x)]$。由于 $C_N(x) = N \\cap C_G(x)$，而 $[G : C_G(x)] = [G : N C_G(x)] \\cdot [N C_G(x) : C_G(x)]$，结合 $[N C_G(x) : C_G(x)] = [N : N \\cap C_G(x)] = [N : C_N(x)]$，得 $|x^N|$ 整除 $|x^G|$。\n\n(ii) 由第一同构定理，$|(gN)^{G/N}| = [G/N : C_{G/N}(gN)]$。注意 $C_{G/N}(gN) \\supseteq C_G(g)N/N$，故 $|(gN)^{G/N}|$ 整除 $[G : C_G(g)N] \\leq [G : C_G(g)] = |g^G|$。$\\square$' },
+        { label: '📄 PDF 工作流示例：消失元论文（arXiv:2501.13605）', text: '__pdf__:/ui/examples/vanishing_elements_2501.13605.pdf' },
       ],
       en: [
-        { label: "Lagrange's theorem (group theory)", text: '**Theorem**: Let $G$ be a finite group and $H$ a subgroup. Then $|H|$ divides $|G|$.\n\n**Proof**: Consider the partition of $G$ into left cosets of $H$. For any $g \\in G$, define $gH = \\{gh \\mid h \\in H\\}$.\n\nFirst, $|gH| = |H|$ since the map $h \\mapsto gh$ is a bijection.\n\nSecond, two cosets $g_1H$ and $g_2H$ are either equal or disjoint. Proof: if $g_1H \\cap g_2H \\neq \\emptyset$, take $x = g_1h_1 = g_2h_2$, then $g_1 = g_2h_2h_1^{-1} \\in g_2H$, so $g_1H \\subseteq g_2H$. By symmetry $g_2H \\subseteq g_1H$, hence $g_1H = g_2H$.\n\nThus $G$ is partitioned into $k$ disjoint cosets, so $|G| = k|H|$, i.e., $|H|$ divides $|G|$. $\\square$' },
-        { label: 'Determinant equals product of eigenvalues', text: '**Theorem**: The determinant of an $n \\times n$ matrix equals the product of its eigenvalues.\n\n**Proof**: Let $A$ be an $n \\times n$ complex matrix with eigenvalues $\\lambda_1, \\ldots, \\lambda_n$ (counted with multiplicity).\n\nOver $\\mathbb{C}$, $A$ is similar to its Jordan normal form $J$: there exists invertible $P$ such that $A = PJP^{-1}$.\n\nBy similarity invariance: $\\det(A) = \\det(PJP^{-1}) = \\det(P)\\det(J)\\det(P^{-1}) = \\det(J)$.\n\nJordan form $J$ is block diagonal with each Jordan block corresponding to an eigenvalue. $J$ is upper triangular, so $\\det(J) = \\lambda_1 \\cdots \\lambda_n$.\n\nTherefore $\\det(A) = \\lambda_1 \\cdots \\lambda_n$. $\\square$' },
-        { label: 'Infinitude of primes (Euclid)', text: '**Theorem**: There are infinitely many primes.\n\n**Proof** (Euclid): Suppose there are only finitely many primes $p_1, p_2, \\ldots, p_n$.\n\nConsider $N = p_1 p_2 \\cdots p_n + 1$.\n\nSince $N > 1$, by the fundamental theorem of arithmetic, $N$ has a prime divisor $p$.\n\nIf $p \\in \\{p_1, \\ldots, p_n\\}$, say $p = p_i$, then $p \\mid p_1 \\cdots p_n$ and $p \\mid N$, so $p \\mid (N - p_1 \\cdots p_n) = 1$, contradiction.\n\nThus $p \\notin \\{p_1, \\ldots, p_n\\}$, contradicting our assumption that all primes are $p_1, \\ldots, p_n$.\n\nTherefore there are infinitely many primes. $\\square$' },
+        { label: 'Lemma 2.1 (conjugacy class divisibility)', text: '**Lemma 2.1** (vanishing elements paper, §2)\nLet $G$ be a finite group and $N$ a normal subgroup of $G$. Then:\n(i) For any $x \\in N$, $|x^N|$ divides $|x^G|$;\n(ii) For any $g \\in G$, $|(gN)^{G/N}|$ divides $|g^G|$.\n\n**Proof**:\n(i) By the orbit-stabilizer theorem, $|x^N| = [N : C_N(x)]$ and $|x^G| = [G : C_G(x)]$. Since $C_N(x) = N \\cap C_G(x)$, and $[G : C_G(x)] = [G : NC_G(x)] \\cdot [NC_G(x) : C_G(x)]$ with $[NC_G(x) : C_G(x)] = [N : C_N(x)]$, we get $|x^N|$ divides $|x^G|$.\n\n(ii) By the first isomorphism theorem, $|(gN)^{G/N}| = [G/N : C_{G/N}(gN)]$. Since $C_{G/N}(gN) \\supseteq C_G(g)N/N$, we have $|(gN)^{G/N}|$ divides $[G : C_G(g)] = |g^G|$. $\\square$' },
+        { label: '📄 PDF workflow example: vanishing elements paper (arXiv:2501.13605)', text: '__pdf__:/ui/examples/vanishing_elements_2501.13605.pdf' },
       ],
     },
     searching: {
@@ -1413,10 +1636,34 @@ function _ensureChatEmptyState() {
     </div>`;
   c.querySelectorAll('.ce-example').forEach(el => {
     renderKatexFallback(el);
-    el.addEventListener('click', () => {
+    el.addEventListener('click', async () => {
+      const raw = el.dataset.raw || '';
+      // PDF 工作流示例：自动 fetch 并挂载为附件
+      if (raw.startsWith('__pdf__:')) {
+        const url = raw.slice('__pdf__:'.length);
+        const filename = url.split('/').pop() || 'example.pdf';
+        try {
+          const resp = await fetch(url);
+          if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+          const blob = await resp.blob();
+          const file = new File([blob], filename, { type: 'application/pdf' });
+          Attachments.clear();
+          Attachments.add(file, null, file);
+          AppState.set('mode', 'reviewing');
+          showToast('success', AppState.lang === 'zh'
+            ? `已加载 ${filename}，点击发送开始审查`
+            : `Loaded ${filename} — click send to start review`);
+        } catch (err) {
+          showToast('error', AppState.lang === 'zh'
+            ? `PDF 加载失败: ${err.message}`
+            : `Failed to load PDF: ${err.message}`);
+        }
+        return;
+      }
+      // 普通文本示例
       const ta = document.getElementById('input-textarea');
       if (ta) {
-        ta.value = el.dataset.raw || el.textContent || '';
+        ta.value = raw || el.textContent || '';
         ta.dispatchEvent(new Event('input', { bubbles: true }));
         ta.focus();
       }
@@ -1830,7 +2077,8 @@ function _renderMathText(text) {
   }
 }
 
-function startWaitTips(containerEl) {
+function startWaitTips(containerEl, opts) {
+  opts = opts || {};
   if (_waitTipTimer || _waitTipAppearTimer) return;
   _waitTipIdx = Math.floor(Math.random() * (_WAIT_TIPS.en.length));
   _waitTipInterval = 5000;
@@ -1838,15 +2086,17 @@ function startWaitTips(containerEl) {
   // 取当前语言的 tips（每次调用重新读，语言切换后自动生效）
   const getTips = () => _WAIT_TIPS[AppState.lang] || _WAIT_TIPS.en;
 
-  // 延迟 2 秒才显示第一条
+  const firstDelayMs = opts.firstDelayMs != null ? opts.firstDelayMs : 4000;
+
+  // 延迟显示第一条（学习模式默认 800ms）
   _waitTipAppearTimer = setTimeout(() => {
     _waitTipAppearTimer = null;
-    const tips = getTips();
+    const tips = opts.learnTip ? [t('ui.learn.waitTip')] : getTips();
 
     const bar = document.createElement('div');
     bar.className = 'wait-tip-bar';
     bar.id = 'wait-tip-bar';
-    bar.innerHTML = `<span class="wait-tip-text">${_renderMathText(tips[_waitTipIdx % tips.length])}</span>`;
+    bar.innerHTML = `<span class="wait-tip-text">${opts.learnTip ? escapeHtml(tips[0]) : _renderMathText(tips[_waitTipIdx % tips.length])}</span>`;
     containerEl.appendChild(bar);
     requestAnimationFrame(() => {
       bar.classList.add('visible');
@@ -1857,7 +2107,7 @@ function startWaitTips(containerEl) {
     function scheduleNext() {
       _waitTipTimer = setTimeout(() => {
         _waitTipTimer = null;
-        const curTips = getTips(); // 每次重新读，跟随当前语言
+        const curTips = opts.learnTip ? [t('ui.learn.waitTip')] : getTips();
         _waitTipIdx = (_waitTipIdx + 1) % curTips.length;
         const el = document.getElementById('wait-tip-bar');
         if (!el) return;
@@ -1865,16 +2115,21 @@ function startWaitTips(containerEl) {
         setTimeout(() => {
           const el2 = document.getElementById('wait-tip-bar');
           if (!el2) return;
-          el2.querySelector('.wait-tip-text').innerHTML = _renderMathText(curTips[_waitTipIdx]);
+          if (opts.learnTip) {
+            el2.querySelector('.wait-tip-text').textContent = curTips[0];
+          } else {
+            el2.querySelector('.wait-tip-text').innerHTML = _renderMathText(curTips[_waitTipIdx]);
+            renderKatexFallback(el2);
+          }
           el2.classList.add('visible');
-          renderKatexFallback(el2);
+          if (!opts.learnTip) renderKatexFallback(el2);
         }, 400);
         _waitTipInterval = Math.min(_waitTipInterval * 2, 20000); // 5→10→20→20…
         scheduleNext();
       }, _waitTipInterval);
     }
-    scheduleNext();
-  }, 4000);
+    if (!opts.learnTip) scheduleNext();
+  }, firstDelayMs);
 }
 
 /**
@@ -2256,15 +2511,48 @@ function addMessage(role, content, opts = {}) {
   const contentEl = document.createElement('div');
   contentEl.className = 'msg-content';
 
+  // PDF attachment chips（仅用户消息）
+  if (opts.pdfAttachments?.length) {
+    const chipsRow = document.createElement('div');
+    chipsRow.className = 'msg-pdf-chips';
+    chipsRow.innerHTML = opts.pdfAttachments.map((att, i) => {
+      const pageStr = att.pageCount ? ` · ${att.pageCount} 页` : '';
+      return `<div class="msg-pdf-chip"
+                   data-att-idx="${i}"
+                   data-name="${escapeHtml(att.name || '')}"
+                   data-pages="${att.pageCount || ''}"
+                   data-url="${escapeHtml(att.objectUrl || '')}">
+        <span class="msg-pdf-chip-icon">📕</span>
+        <span class="msg-pdf-chip-name" title="${escapeHtml(att.name || '')}">${escapeHtml(att.name || '')}</span>
+        ${pageStr ? `<span class="msg-pdf-chip-pages">${pageStr}</span>` : ''}
+      </div>`;
+    }).join('');
+    contentEl.appendChild(chipsRow);
+
+    // 绑定 hover / click，thumbnails 不写进 DOM（避免 HTML 膨胀）
+    chipsRow.querySelectorAll('.msg-pdf-chip').forEach((chip, i) => {
+      const att = opts.pdfAttachments[i];
+      chip.addEventListener('mouseenter', () => {
+        if (att.thumbnails?.length) _showPdfThumbTooltip(chip, att.thumbnails);
+      });
+      chip.addEventListener('mouseleave', _hidePdfThumbTooltip);
+      chip.addEventListener('click', () => {
+        openPdfGallery(att.thumbnails, att.name, att.pageCount, att.objectUrl || null);
+      });
+    });
+  }
+
   if (content) {
-    contentEl.innerHTML = role === 'user'
+    const textDiv = document.createElement('div');
+    textDiv.innerHTML = role === 'user'
       ? renderUserMessageHtml(content)
       : renderMarkdown(content);
+    contentEl.appendChild(textDiv);
     if (role === 'ai' && !opts.noSave) {
       setTimeout(() => addMessageActions(bubble, content), 50);
     }
     setTimeout(() => renderKatexFallback(contentEl), 30);
-  } else if (role === 'ai') {
+  } else if (role === 'ai' && !opts.pdfAttachments?.length) {
     bubble.innerHTML = makeThinkingHtml();
     msgEl.appendChild(roleEl);
     msgEl.appendChild(bubble);
@@ -2281,7 +2569,15 @@ function addMessage(role, content, opts = {}) {
   container.appendChild(msgEl);
   msgEl.scrollIntoView({ block: 'end', behavior: 'smooth' });
 
-  if (!opts.noSave) AppState.history.push({ role, content: content || '', ts: Date.now() });
+  if (!opts.noSave) AppState.history.push({
+    role, content: content || '', ts: Date.now(),
+    pdfAttachments: opts.pdfAttachments?.length ? opts.pdfAttachments.map(a => ({
+      name: a.name,
+      pageCount: a.pageCount,
+      thumbnails: a.thumbnails || [],
+      // objectUrl 是 blob URL，不持久化
+    })) : undefined,
+  });
   return contentEl;
 }
 
@@ -2314,28 +2610,198 @@ window.retryLastMessage = function() {
 };
 
 /* ─────────────────────────────────────────────────────────────
+   13. 模式处理器 · 学习模式辅助
+───────────────────────────────────────────────────────────── */
+const LEARN_SECTION_ORDER = ['background', 'prereq', 'proof', 'examples', 'extensions'];
+const LEARN_SECTION_ICONS = { background: '◉', prereq: '◔', proof: '◧', examples: '◑', extensions: '◐' };
+
+function _makeSkeletonHtml() {
+  const hint = escapeHtml(t('ui.learn.generatingHint'));
+  return `<div class="section-skeleton" aria-live="polite"><span class="skeleton-line"></span><span class="skeleton-line short"></span><span class="skeleton-hint">${hint}</span></div>`;
+}
+
+function buildLearnSkeletonHtml() {
+  const ORDER = LEARN_SECTION_ORDER.slice(0, 4);
+  const skel = _makeSkeletonHtml();
+  return ORDER.map(key => `
+    <details class="accordion learn-section" data-section="${key}" open>
+      <summary>
+        <span class="accordion-section-icon">${LEARN_SECTION_ICONS[key]}</span>
+        <span class="accordion-label">${escapeHtml(t('ui.accordion.' + key))}</span>
+        <span class="section-status section-status-pending">${escapeHtml(t('ui.learn.statusPending'))}</span>
+      </summary>
+      <div class="accordion-body">${skel}</div>
+    </details>`).join('');
+}
+
+function _setLearnSectionStatus(sectionId, state, detailMsg) {
+  const el = document.querySelector(`#learn-body [data-section="${sectionId}"] .section-status`);
+  if (!el) return;
+  el.className = 'section-status section-status-' + state;
+  if (state === 'running' && detailMsg) {
+    el.textContent = detailMsg;
+    return;
+  }
+  const map = {
+    pending: 'ui.learn.statusPending',
+    running: 'ui.learn.statusRunning',
+    done: 'ui.learn.statusDone',
+    error: 'ui.learn.statusError',
+  };
+  el.textContent = t(map[state] || map.pending);
+}
+
+function _applyLearningSectionsToDom(sections) {
+  if (!sections) return;
+  for (const key of LEARN_SECTION_ORDER) {
+    const sec = sections[key];
+    if (!sec || !String(sec.content || '').trim()) continue;
+    if (String(sec.content).includes('section-skeleton')) continue;
+    const body = document.querySelector(`#learn-body [data-section="${key}"] .accordion-body`);
+    if (body) {
+      body.innerHTML = renderMarkdown(sec.content);
+      renderKatexFallback(body);
+    }
+  }
+}
+
+function rebuildLearningMarkdown(sections) {
+  if (!sections) return '';
+  const parts = [];
+  for (const k of LEARN_SECTION_ORDER) {
+    const s = sections[k];
+    if (!s || !String(s.content || '').trim()) continue;
+    if (String(s.content).includes('section-skeleton')) continue;
+    const title = (s.title || '').trim() || k;
+    parts.push(`## ${title}\n\n${String(s.content).trim()}`);
+  }
+  return parts.length ? parts.join('\n\n') + '\n' : '';
+}
+
+function _renderLearnSectionError(sectionId, message) {
+  _setLearnSectionStatus(sectionId, 'error');
+  const body = document.querySelector(`#learn-body [data-section="${sectionId}"] .accordion-body`);
+  if (!body) return;
+  const msg = escapeHtml(message || '');
+  const fail = escapeHtml(t('ui.learn.sectionFailed'));
+  const btnLabel = escapeHtml(t('ui.learn.retrySection'));
+  body.innerHTML = `<div class="section-error" role="alert">
+    <span class="section-error-icon">!</span>
+    <div class="section-error-text">${fail} ${msg}</div>
+    <button type="button" class="section-retry-btn">${btnLabel}</button>
+  </div>`;
+  const btnEl = body.querySelector('.section-retry-btn');
+  if (btnEl) btnEl.addEventListener('click', () => retryLearnSection(sectionId));
+}
+
+window.retryLearnSection = async function(sectionId) {
+  const ctx = window._lastLearnContext;
+  if (!ctx || !sectionId) return;
+  _setLearnSectionStatus(sectionId, 'running', t('ui.learn.statusRunning'));
+  const body = document.querySelector(`#learn-body [data-section="${sectionId}"] .accordion-body`);
+  if (body) {
+    body.innerHTML = _makeSkeletonHtml();
+  }
+  let retryRaw = '';
+  try {
+    const resp = await fetch('/learn/section', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        statement: ctx.statement,
+        section: sectionId,
+        level: ctx.level,
+        model: ctx.model,
+        lang: ctx.lang,
+      }),
+      signal: AppState._abortController ? AppState._abortController.signal : undefined,
+    });
+    if (!resp.ok) {
+      let detail = `HTTP ${resp.status}`;
+      try { const e = await resp.json(); detail = e.detail || detail; } catch {}
+      throw new Error(detail);
+    }
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      const lines = buf.split('\n');
+      buf = lines.pop();
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const raw = line.slice(6).trim();
+        if (raw === '[DONE]') break;
+        try {
+          const obj = JSON.parse(raw);
+          if (obj.chunk !== undefined) {
+            const cleanChunk = obj.chunk
+              .replace(/<!--(?!vp-)[^>]*-->/g, '')
+              .replace(/\\\[/g, '$$')
+              .replace(/\\\]/g, '$$');
+            retryRaw += cleanChunk;
+            const one = parseLearningOutput(retryRaw);
+            if (one && one[sectionId] && !String(one[sectionId].content).includes('section-skeleton')) {
+              const bodyEl = document.querySelector(`#learn-body [data-section="${sectionId}"] .accordion-body`);
+              if (bodyEl) {
+                bodyEl.innerHTML = renderMarkdown(one[sectionId].content);
+                renderKatexFallback(bodyEl);
+              }
+            }
+          } else if (obj.section_error) {
+            _renderLearnSectionError(obj.section_error.id, obj.section_error.message);
+            return;
+          } else if (obj.error) {
+            throw new Error(obj.error);
+          }
+        } catch (parseErr) {
+          if (parseErr.message && parseErr.message !== raw) throw parseErr;
+        }
+      }
+    }
+    const prev = parseLearningOutput(window._lastLearnRawBuffer || '') || {};
+    const neu = parseLearningOutput(retryRaw) || {};
+    if (neu[sectionId]) prev[sectionId] = neu[sectionId];
+    window._lastLearnRawBuffer = rebuildLearningMarkdown(prev);
+    const lastHistory = AppState.history[AppState.history.length - 1];
+    if (lastHistory && lastHistory.role === 'ai') lastHistory.content = window._lastLearnRawBuffer;
+    if (window._lastLearnBubbleEl) addMessageActions(window._lastLearnBubbleEl, window._lastLearnRawBuffer);
+    _setLearnSectionStatus(sectionId, 'done');
+  } catch (err) {
+    _renderLearnSectionError(sectionId, err.message || String(err));
+    showToast('error', err.message || String(err));
+  }
+};
+
+/* ─────────────────────────────────────────────────────────────
    13. 模式处理器
 ───────────────────────────────────────────────────────────── */
 async function handleLearning(statement) {
   _lastAttempt = { mode: 'learning', statement };
+  const lang = _detectLang(statement);
+  window._lastLearnContext = {
+    statement,
+    level: AppState.settings.level,
+    lang,
+    model: AppState.model,
+  };
   addMessage('user', statement);
   const contentEl = addMessage('ai', null);
   if (!contentEl) return;
 
-  // 学习模式：直接展示内容，无状态条
-  contentEl.innerHTML = `<div class="learn-body" id="learn-body"></div>`;
+  contentEl.innerHTML = `<div class="learn-body" id="learn-body">${buildLearnSkeletonHtml()}</div>`;
   AppState.set('isStreaming', true);
 
-  // 启动等待提示轮播
-  startWaitTips(contentEl);
+  startWaitTips(contentEl, { firstDelayMs: 800, learnTip: true });
 
   const ctrl = new AbortController();
   AppState._abortController = ctrl;
 
-  const bodyEl   = () => document.getElementById('learn-body');
+  const bodyEl = () => document.getElementById('learn-body');
 
   let rawBuffer = '';
-  let stopped = false;
 
   try {
     const resp = await fetch('/learn', {
@@ -2349,7 +2815,7 @@ async function handleLearning(statement) {
         project_id: AppState.projectId,
         user_id: AppState.userId,
         kb_constrained: AppState.settings.kbConstrained,
-        lang: _detectLang(statement),
+        lang,
         text_attachments: (AppState.settings.attachments || [])
           .filter(a => a.content && typeof a.content === 'string')
           .map(a => a.content)
@@ -2381,22 +2847,28 @@ async function handleLearning(statement) {
         try {
           const obj = JSON.parse(raw);
           if (obj.chunk !== undefined) {
-            // 过滤调试注释；将 \[...\] 规范化为 $$...$$ 避免 marked 吃掉反斜杠
             const cleanChunk = obj.chunk
               .replace(/<!--(?!vp-)[^>]*-->/g, '')
               .replace(/\\\[/g, '$$')
               .replace(/\\\]/g, '$$');
             rawBuffer += cleanChunk;
-            // 流式增量：解析并渲染已有内容（不做 KaTeX，避免每帧重绘闪烁）
             const sections = parseLearningOutput(rawBuffer, { allowEmpty: true });
-            const b = bodyEl();
-            if (b) {
-              let _html = sections ? buildAccordionHtml(sections) : '';
-              if (!_html) _html = renderStreamingMarkdown(rawBuffer);
-              if (_html) { b.innerHTML = _html; renderKatexFallback(b); }
+            if (bodyEl()) _applyLearningSectionsToDom(sections);
+          } else if (obj.step !== undefined && obj.status !== undefined) {
+            const st = obj.step;
+            const msg = obj.status;
+            const order = LEARN_SECTION_ORDER.slice(0, 4);
+            if (st === 'done') {
+              order.forEach(k => _setLearnSectionStatus(k, 'done'));
+            } else {
+              const idx = order.indexOf(st);
+              if (idx >= 0) {
+                for (let i = 0; i < idx; i++) _setLearnSectionStatus(order[i], 'done');
+                _setLearnSectionStatus(st, 'running', msg);
+              }
             }
-          } else if (obj.status !== undefined) {
-            // 状态帧已移除，忽略
+          } else if (obj.section_error) {
+            _renderLearnSectionError(obj.section_error.id, obj.section_error.message);
           } else if (obj.error) {
             throw new Error(obj.error);
           }
@@ -2407,37 +2879,36 @@ async function handleLearning(statement) {
     }
   } catch (err) {
     if (err && err.name === 'AbortError') {
-      stopped = true;
+      /* stopped */
     } else {
       AppState.set('isStreaming', false);
       addErrorInline(contentEl, t('ui.err.learning', { e: err.message || err }));
       showToast('error', err.message || String(err));
+      stopWaitTips();
       return;
     }
   }
 
   AppState.set('isStreaming', false);
 
-  // 最终渲染：完整解析 → accordion
-  const sections = parseLearningOutput(rawBuffer);
   const b = bodyEl();
-  if (b && sections) {
-    const html = buildAccordionHtml(sections);
-    if (html) {
-      b.innerHTML = html;
-      b.querySelectorAll('[data-needs-katex]').forEach(el => {
-        renderKatexFallback(el);
-        el.removeAttribute('data-needs-katex');
-      });
-      renderKatexFallback(b);
-    }
+  if (b) {
+    // 折叠流式期间全部展开的非默认节
+    ['prereq', 'examples', 'extensions'].forEach(k => {
+      b.querySelector(`[data-section="${k}"]`)?.removeAttribute('open');
+    });
+    // 确保所有状态徽章显示"完成"（兼容 done 帧丢失的边缘情况）
+    ['background', 'prereq', 'proof', 'examples'].forEach(k => _setLearnSectionStatus(k, 'done'));
+    // 最终 KaTeX 兜底渲染
+    renderKatexFallback(b);
   }
 
-  // 停止等待提示轮播
-  stopWaitTips();
-
+  window._lastLearnRawBuffer = rawBuffer;
   const bubbleEl = contentEl.closest('.msg-bubble');
+  window._lastLearnBubbleEl = bubbleEl || null;
   if (bubbleEl) addMessageActions(bubbleEl, rawBuffer);
+
+  stopWaitTips();
 
   const lastHistory = AppState.history[AppState.history.length - 1];
   if (lastHistory && lastHistory.role === 'ai' && !lastHistory.content) {
@@ -2445,12 +2916,6 @@ async function handleLearning(statement) {
   }
   saveCurrentSession(statement);
   smartScroll(contentEl);
-}
-
-function _stripCotPreamble(text) {
-  // Disabled: system prompts already prohibit meta-commentary,
-  // and COT_STARTERS patterns are too broad for mathematical text.
-  return text;
 }
 
 function parseLearningOutput(text, opts) {
@@ -2476,10 +2941,7 @@ function parseLearningOutput(text, opts) {
   headings.forEach((h, i) => {
     const bodyStart = h.end;
     const bodyEnd   = i + 1 < headings.length ? headings[i + 1].pos : text.length;
-    let content    = text.slice(bodyStart, bodyEnd).trim();
-    // Strip COT preamble: remove leading paragraphs that look like meta-commentary
-    // (e.g. "The request is to...", "I will...", "However, this concept...")
-    content = _stripCotPreamble(content);
+    const content = text.slice(bodyStart, bodyEnd).trim();
     if (!content) {
       if (!allowEmpty) return;
       // plan F.3 (T55)：流式空段不再用单薄的 "..."，改为可读的等待提示 + 微动画占位骨架
@@ -2507,8 +2969,6 @@ function buildAccordionHtml(sections, opts) {
   // 流式期间所有 section 默认展开，让用户实时看到生成；最终态保持 prereq+proof 展开，其余可折叠
   const expandAll = !!opts.expandAll || AppState.isStreaming;
 
-  const ORDER  = ['background', 'prereq', 'proof', 'examples', 'extensions'];
-  const ICONS  = { background: '◉', prereq: '◔', proof: '◧', examples: '◑', extensions: '◐' };
   const LABELS = {
     background: t('ui.accordion.background'),
     prereq:     t('ui.accordion.prereq'),
@@ -2517,19 +2977,19 @@ function buildAccordionHtml(sections, opts) {
     extensions: t('ui.accordion.extensions'),
   };
 
-  return ORDER
+  return LEARN_SECTION_ORDER
     .filter(key => sections[key] && sections[key].content.trim())
     .map(key => {
       const { content } = sections[key];
       const label   = LABELS[key];
-      const icon    = ICONS[key];
+      const icon    = LEARN_SECTION_ICONS[key];
       const bodyHtml = renderMarkdown(content);
       const open = expandAll || key === 'proof' || key === 'background' ? 'open' : '';
       // 每个 accordion body 在插入 DOM 后需要触发 KaTeX 渲染，用 data 属性标记
       return `
-        <details class="accordion" ${open} data-needs-katex="1">
+        <details class="accordion learn-section" data-section="${key}" ${open} data-needs-katex="1">
           <summary>
-            <span class="accordion-section-icon">${icon}</span>${label}
+            <span class="accordion-section-icon">${icon}</span><span class="accordion-label">${label}</span>
           </summary>
           <div class="accordion-body">${bodyHtml}</div>
         </details>`;
@@ -2708,15 +3168,6 @@ function _finalizeSolve(contentEl, rawBuffer, metadata, statement, stopped) {
   if (bodyEl && rawBuffer) {
     bodyEl.innerHTML = renderMarkdown(rawBuffer);
     renderKatexFallback(bodyEl);
-  }
-
-  // 提取 metadata 并渲染 verdict bar
-  extractSolveMetadata(rawBuffer, metadata);
-  const verdictHtml = buildVerdictBar(metadata);
-  if (verdictHtml) {
-    const vEl = document.createElement('div');
-    vEl.innerHTML = verdictHtml;
-    contentEl.appendChild(vEl);
   }
 
   // 添加操作按钮
@@ -3205,6 +3656,7 @@ async function handleFormalization(statement) {
       model: AppState.model,
       lang: AppState.lang,
       max_iters: 4,
+      mode: 'aristotle',
     },
     { statement }
   );
@@ -3405,6 +3857,11 @@ function _finalizeFormalize(contentEl, result, stopped, statement = '') {
       <span class="fbadge fbadge-mathlib">mathlib4</span>
       <a href="${escapeHtml(source_url)}" target="_blank" rel="noopener noreferrer" class="formalize-source-link">${isZh ? '查看来源 →' : 'View source →'}</a>${sc}
     </div>`;
+  } else if (source === 'aristotle') {
+    sourceHtml = `<div class="formalize-source-row">
+      <span class="fbadge fbadge-mathlib">Harmonic Aristotle</span>
+      <span class="formalize-source-note">${isZh ? '云端 Lean 4（Harmonic）' : 'Cloud Lean 4 (Harmonic)'}</span>
+    </div>`;
   } else {
     sourceHtml = `<div class="formalize-source-row">
       <span class="fbadge fbadge-gen">${isZh ? 'AI 生成' : 'AI-generated'}</span>
@@ -3415,6 +3872,14 @@ function _finalizeFormalize(contentEl, result, stopped, statement = '') {
   const summaryParts = [];
   if (iterations > 1) {
     summaryParts.push(`${isZh ? '尝试' : 'Attempts'}: <strong>${iterations}</strong>`);
+  }
+  const aid = compilation.aristotle_formalize_project_id;
+  const pid = compilation.aristotle_prove_project_id;
+  if (aid) {
+    summaryParts.push(`${isZh ? '形式化任务' : 'Formalize job'}: <code style="font-size:11px">${escapeHtml(String(aid))}</code>`);
+  }
+  if (pid) {
+    summaryParts.push(`${isZh ? '证明任务' : 'Proof job'}: <code style="font-size:11px">${escapeHtml(String(pid))}</code>`);
   }
   if (failureMode !== 'none') {
     summaryParts.push(`${isZh ? '失败类型' : 'Failure mode'}: <strong>${escapeHtml(formatFailureMode(failureMode))}</strong>`);
@@ -3493,6 +3958,7 @@ function _finalizeFormalize(contentEl, result, stopped, statement = '') {
           current_code: lean_code,
           compile_error: compilation.error || '',
           skip_search: true,
+          mode: 'pipeline',
         },
         { statement }
       );
@@ -3528,13 +3994,26 @@ async function handleReviewing(focusText) {
 
   _lastAttempt = { mode: 'reviewing', proofText };
   let userPreview;
-  if (list.length) {
+  const pdfList = list.filter(a => a.rawFile && /\.pdf$/i.test(a.name));
+  const nonPdfList = list.filter(a => !(/\.pdf$/i.test(a.name)));
+  if (pdfList.length) {
+    // PDF 附件用 chip 渲染，非 PDF 附件仍用纯文本
+    userPreview = nonPdfList.map(a => '📎 ' + a.name).join('\n')
+      + (focusText ? '\n\n' + focusText : '');
+  } else if (list.length) {
     userPreview = list.map(a => '📎 ' + a.name).join('\n')
       + (focusText ? '\n\n' + focusText : '');
   } else {
     userPreview = proofText;
   }
-  addMessage('user', userPreview);
+  addMessage('user', userPreview, {
+    pdfAttachments: pdfList.length ? pdfList.map(a => ({
+      name: a.name,
+      pageCount: a.pageCount,
+      thumbnails: a.thumbnails || [],
+      objectUrl: a.objectUrl || null,
+    })) : undefined,
+  });
 
   const contentEl = addMessage('ai', null);
   if (!contentEl) return;
@@ -3607,8 +4086,14 @@ async function _handleReviewingPdf(attach, focusText) {
   const isZh = AppState.lang === 'zh';
   const fileName = attach.name;
 
-  const userPreview = `📕 ${fileName}` + (focusText ? `\n\n${focusText}` : '');
-  addMessage('user', userPreview);
+  addMessage('user', focusText || '', {
+    pdfAttachments: [{
+      name: attach.name,
+      pageCount: attach.pageCount,
+      thumbnails: attach.thumbnails || [],
+      objectUrl: attach.objectUrl || null,
+    }],
+  });
 
   const contentEl = addMessage('ai', null);
   if (!contentEl) return;
@@ -4388,6 +4873,10 @@ function bindEvents() {
     const activate = () => {
       const mode = card.dataset.mode;
       const action = card.dataset.action;
+      if (mode === 'formalization') {
+        window.open('https://aristotle.harmonic.fun/dashboard', '_blank', 'noopener');
+        return;
+      }
       if (mode) {
         // 每次从主界面进入模块时，开启新会话（清空旧内容）
         const container = document.getElementById('chat-container');
@@ -4415,6 +4904,10 @@ function bindEvents() {
   document.querySelectorAll('.mode-tab').forEach(tab => {
     tab.addEventListener('click', () => {
       const mode = tab.dataset.mode;
+      if (mode === 'formalization') {
+        window.open('https://aristotle.harmonic.fun/dashboard', '_blank', 'noopener');
+        return;
+      }
       if (mode === AppState.mode && AppState.view === 'chat') return;
       // 切换模式 = 开启新会话
       const container = document.getElementById('chat-container');

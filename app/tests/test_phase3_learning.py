@@ -18,7 +18,6 @@ async def test_learning_output_structure():
     result = await run_learning_pipeline(
         "证明有限域的乘法群是循环群",
         level="undergraduate",
-        include_prereqs=True,
     )
 
     md = result.to_markdown()
@@ -43,7 +42,6 @@ async def test_learning_prereq_exists():
     result = await run_learning_pipeline(
         "证明有限域的乘法群是循环群",
         level="undergraduate",
-        include_prereqs=True,
     )
 
     md = result.to_markdown()
@@ -102,13 +100,11 @@ async def test_learning_level_difference():
     ug_result = await run_learning_pipeline(
         "Prove that the multiplicative group of a finite field is cyclic.",
         level="undergraduate",
-        include_prereqs=False,
     )
 
     grad_result = await run_learning_pipeline(
         "Prove that the multiplicative group of a finite field is cyclic.",
         level="graduate",
-        include_prereqs=False,
     )
 
     assert ug_result.to_markdown() != grad_result.to_markdown(), "本科/研究生输出完全相同"

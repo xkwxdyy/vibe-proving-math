@@ -49,3 +49,10 @@ validate  = "gpt-4o"
 blueprint = "gpt-4o"
 generate  = "gpt-4o"
 repair    = "gpt-4o"
+
+# Harmonic Aristotle — https://aristotle.harmonic.fun （也可用环境变量 ARISTOTLE_API_KEY）
+[aristotle]
+api_key                       = ""
+formalize_timeout_seconds     = 1800
+prove_timeout_seconds         = 1800
+poll_interval_seconds         = 15

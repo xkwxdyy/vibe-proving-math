@@ -12,6 +12,9 @@ openai>=1.30.0          # AsyncOpenAI，内置 httpx 连接池
 # ── HTTP 客户端 ───────────────────────────────────────────────────────────────
 httpx>=0.27.0           # 用于 TheoremSearch / LATRACE / arXiv 下载
 
+# ── Harmonic Aristotle（Lean 4 自动形式化 / 证明）────────────────────────────────
+aristotlelib>=1.0.1     # https://aristotle.harmonic.fun
+
 # ── 论文解析 ──────────────────────────────────────────────────────────────────
 # PyMuPDF (fitz) 是可选依赖：仅在 arXiv PDF 降级路径需要
 # 若不需要 PDF 解析，可以注释掉以减少安装体积（~50MB）

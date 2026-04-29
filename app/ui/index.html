@@ -76,7 +76,7 @@
   <!-- morphdom：纯 UMD，无 module shim 即可挂到 window.morphdom -->
   <script src="https://cdn.jsdelivr.net/npm/morphdom@2.7.4/dist/morphdom-umd.min.js"></script>
 
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css?v=f105">
 </head>
 <body>
 
@@ -223,9 +223,8 @@
         <span class="card-arrow">→</span>
       </button>
 
-      <button class="feature-card card-beta" data-mode="formalization" tabindex="0"
+      <button class="feature-card" data-mode="formalization" tabindex="0"
               data-i18n-aria-label="cards.formalization.title" aria-label="形式化证明">
-        <span class="card-beta-chip">Beta</span>
         <div class="card-glyph formalization-glyph">⊩</div>
         <div class="card-title" data-i18n="cards.formalization.title">形式化证明</div>
         <div class="card-desc" data-i18n="cards.formalization.desc">将数学命题转化为 Lean 4 代码：搜索 mathlib4 · 自动形式化 · 本地编译验证</div>
@@ -723,6 +722,36 @@
   <div class="mic-note"></div>
 </div>
 
-<script src="app.js?v=f104"></script>
+<!-- PDF 缩略图画廊（聊天气泡点击后弹出） -->
+<div id="pdf-gallery-modal" style="display:none" role="dialog" aria-modal="true" aria-label="PDF 预览">
+  <div class="pdf-gallery-overlay" onclick="closePdfGallery()"></div>
+  <div class="pdf-gallery-box">
+    <div class="pdf-gallery-header">
+      <span class="pdf-gallery-title" id="pdf-gallery-title"></span>
+      <span class="pdf-gallery-pages" id="pdf-gallery-pages"></span>
+      <button class="pdf-gallery-close" onclick="closePdfGallery()" title="关闭">✕</button>
+    </div>
+    <div class="pdf-gallery-body" id="pdf-gallery-body"></div>
+    <div class="pdf-gallery-footer" id="pdf-gallery-footer"></div>
+  </div>
+</div>
+
+<!-- PDF 全屏查看器 -->
+<div id="pdf-viewer-modal" style="display:none" role="dialog" aria-modal="true" aria-label="PDF 查看器">
+  <div class="pdf-viewer-header">
+    <span class="pdf-viewer-title" id="pdf-viewer-title"></span>
+    <span class="pdf-viewer-pages" id="pdf-viewer-pages"></span>
+    <button class="pdf-viewer-close" id="pdf-viewer-close" title="关闭" onclick="closePdfViewer()">✕</button>
+  </div>
+  <div class="pdf-viewer-body">
+    <iframe id="pdf-viewer-iframe" class="pdf-viewer-iframe"
+            title="PDF viewer" allow="fullscreen">
+      <p>您的浏览器不支持内嵌 PDF，请
+        <a id="pdf-viewer-fallback" href="#">下载文件</a>查看。</p>
+    </iframe>
+  </div>
+</div>
+
+<script src="app.js?v=f106"></script>
 </body>
 </html>

@@ -749,7 +749,10 @@ def test_formalize_api_sse_payload_keeps_extended_fields(monkeypatch):
     monkeypatch.setattr(pipeline, "_try_compile_lean", fake_compile)
 
     client = TestClient(app)
-    events = _collect_sse_events(client, {"statement": "群单位元唯一", "lang": "zh", "max_iters": 2})
+    events = _collect_sse_events(
+        client,
+        {"statement": "群单位元唯一", "lang": "zh", "max_iters": 2, "mode": "pipeline"},
+    )
     final = next(e["final"] for e in events if "final" in e)
 
     assert final["status"] == "generated"
