@@ -281,25 +281,38 @@ async def stream_chat_with_reasoning(
     client = get_client()
     messages = _build_messages(user_message, system=system, extra_messages=extra_messages)
 
-    stream = await client.chat.completions.create(
-        model=_effective_model(model),
-        messages=messages,
-        temperature=temperature,
-        max_tokens=max_tokens,
-        stream=True,
-        extra_body={"reasoning": {"include": True}},
-    )
-    async for chunk in stream:
-        if not chunk.choices:   # Gemini/一些网关会推送空 choices 的元数据块
-            continue
-        delta = chunk.choices[0].delta
-        # 兼容三种字段：reasoning_content (DeepSeek)、reasoning (OpenRouter 扁平)
-        r = getattr(delta, "reasoning_content", None) or getattr(delta, "reasoning", None) or ""
-        c = delta.content or ""
-        if r:
-            yield ("reasoning", r)
-        if c:
-            yield ("content", c)
+    try:
+        stream = await client.chat.completions.create(
+            model=_effective_model(model),
+            messages=messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            stream=True,
+            extra_body={"reasoning": {"include": True}},
+        )
+    except Exception:
+        # 若 LLM 不支持 extra_body（如部分轻量代理），降级为不携带 reasoning 字段
+        stream = await client.chat.completions.create(
+            model=_effective_model(model),
+            messages=messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            stream=True,
+        )
+    try:
+        async for chunk in stream:
+            if not chunk.choices:   # Gemini/一些网关会推送空 choices 的元数据块
+                continue
+            delta = chunk.choices[0].delta
+            # 兼容三种字段：reasoning_content (DeepSeek)、reasoning (OpenRouter 扁平)
+            r = getattr(delta, "reasoning_content", None) or getattr(delta, "reasoning", None) or ""
+            c = delta.content or ""
+            if r:
+                yield ("reasoning", r)
+            if c:
+                yield ("content", c)
+    except Exception:
+        return  # 连接中断或服务端断流，停止迭代即可
 
 
 async def chat_json(

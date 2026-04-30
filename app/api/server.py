@@ -708,7 +708,7 @@ async def review_pdf_stream(
 
     if is_pdf and len(content) > _MAX_PDF_BYTES:
         raise HTTPException(status_code=413, detail=f"PDF 文件超过 50 MB 限制")
-    if is_text and len(content) > _MAX_TEXT_BYTES:
+    if is_text and not is_pdf and len(content) > _MAX_TEXT_BYTES:
         raise HTTPException(status_code=413, detail=f"文本文件超过 1 MB 限制")
 
     from modes.research.reviewer import review_text, review_paper_images
@@ -1020,8 +1020,8 @@ async def update_llm_config(body: dict):
     try:
         import core.llm as _llm_mod
         _llm_mod.update_config_override(patch)
-    except Exception:
-        pass
+    except Exception as _e:
+        logger.warning("core.llm.update_config_override failed: %s — runtime override already set in server dict", _e)
     logger.info("LLM config updated: %s", {k: ("***" if k == "api_key" else v) for k, v in patch.items()})
     return {"ok": True, "updated": list(patch.keys())}
 

@@ -44,8 +44,9 @@ def _chunk_text(text: str, chunk_size: int = 800, overlap: int = 100) -> list[st
             if len(para) <= chunk_size:
                 buf = para
             else:
-                # 长段落强制切
-                for i in range(0, len(para), chunk_size - overlap):
+                # 长段落强制切（step 至少为 1，防止 overlap >= chunk_size 引发 ValueError）
+                step = max(1, chunk_size - overlap)
+                for i in range(0, len(para), step):
                     piece = para[i: i + chunk_size]
                     if piece:
                         chunks.append(piece)
@@ -266,6 +267,7 @@ class KnowledgeBase:
 
     def search(self, query: str, top_k: int = 5, max_chars: int = 3000) -> list[dict]:
         """检索与 query 最相关的段落，返回 [{doc_id, filename, chunk, score}]。"""
+        top_k = min(top_k, 50)  # 防止超大 top_k 导致全量排列内存压力
         if not self._index["documents"]:
             return []
 

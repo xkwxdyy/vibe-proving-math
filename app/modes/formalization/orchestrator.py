@@ -67,7 +67,7 @@ def _mathlib_result(best: dict, score: float, *, lang: str = "zh") -> FormalizeR
         notes=["retrieval-only result"],
     )
     candidate = FormalizationCandidate(
-        lean_code=f"-- Source: {best['path']}\n-- {best.get('lean_name', '')}\n\n{best['snippet']}",
+        lean_code=f"-- Source: {best.get('path', '')}\n-- {best.get('lean_name', '')}\n\n{best.get('snippet', '')}",
         theorem_statement=best.get("lean_name", ""),
         uses_mathlib=True,
         proof_status="complete",

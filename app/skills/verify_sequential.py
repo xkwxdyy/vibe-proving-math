@@ -356,7 +356,10 @@ async def verify_sequential(
 
     steps = []
     fatal = None
-    for s in data.get("steps", []):
+    _MAX_STEPS = 100  # 防止 LLM 返回极长步骤列表导致内存/性能问题
+    for s in (data.get("steps") or [])[:_MAX_STEPS]:
+        if not isinstance(s, dict):
+            continue  # 跳过 null 或非 dict 元素，防止 AttributeError
         verdict = s.get("verdict", "gap")
         step_num = s.get("step_num", len(steps) + 1)
         sv = StepVerdict(
