@@ -705,6 +705,10 @@ async def review_pdf_stream(
         k = (nanonets_api_key or "").strip()
         if k:
             return k
+        # 运行时覆盖（通过 POST /config/nanonets 写入）
+        k = str(_runtime_config_overrides.get("nanonets", {}).get("api_key", "")).strip()
+        if k:
+            return k
         k = (str(_os.environ.get("NANONETS_API_KEY") or "")).strip()
         if k:
             return k
@@ -998,11 +1002,10 @@ async def update_llm_config(body: dict):
     if not patch:
         raise HTTPException(status_code=422, detail="至少提供 base_url / api_key / model 之一")
     _runtime_config_overrides.setdefault("llm", {}).update(patch)
-    # 让 core.llm 下次重新构建客户端
+    # 让 core.llm 下次重新构建客户端（reset_client 清除单例 _llm_client）
     try:
         import core.llm as _llm_mod
-        if hasattr(_llm_mod, "_client"):
-            _llm_mod._client = None  # type: ignore[attr-defined]
+        _llm_mod.update_config_override(patch)
     except Exception:
         pass
     logger.info("LLM config updated: %s", {k: ("***" if k == "api_key" else v) for k, v in patch.items()})

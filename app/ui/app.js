@@ -3502,6 +3502,7 @@ const _VERDICT_CSS_MAP = {
 };
 
 function renderTheoremCardHtml(tr, index) {
+  if (!tr) return '';
   const tCls = _VERDICT_CSS_MAP[tr.verdict] || 'unproven';
   const title = tr.theorem_name
     ? `${t('ui.review.theorem')} ${index}: ${renderMathText(tr.theorem_name, { inline: true })}`
@@ -3554,6 +3555,7 @@ function renderTheoremCardHtml(tr, index) {
 
 /** 渲染 PDF 章节审查卡片（kind=section）—— 极简审稿报告风格。 */
 function renderSectionCardHtml(sec, index) {
+  if (!sec) return '';
   const isZh = AppState.lang === 'zh';
   const pageLabel = sec.page_range ? ` · p.${sec.page_range}` : '';
   const titleText = `§ ${escapeHtml(sec.section_title || `Section ${index}`)}${escapeHtml(pageLabel)}`;
@@ -3564,7 +3566,7 @@ function renderSectionCardHtml(sec, index) {
 
   // main_claims — 只渲染 Partial 或 Incorrect
   const filteredClaims = (sec.main_claims || []).filter(c =>
-    c.verdict === 'Partial' || c.verdict === 'Incorrect'
+    c && (c.verdict === 'Partial' || c.verdict === 'Incorrect')
   );
   const claimsHtml = filteredClaims.map(c => {
     const roleLabel = { theorem: isZh ? '定理' : 'Theorem', lemma: isZh ? '引理' : 'Lemma',
@@ -5187,7 +5189,7 @@ function bindEvents() {
   const LLM_PRESETS = {
     deepseek: {
       base_url: 'https://api.deepseek.com/v1',
-      model: 'deepseek-prover-v2',
+      model: 'deepseek-chat',
     },
     gemini: {
       base_url: 'https://generativelanguage.googleapis.com/v1beta/openai/',

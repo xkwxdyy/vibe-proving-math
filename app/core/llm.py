@@ -50,13 +50,22 @@ _MsgInput = Union[str, list[dict]]
 # ── 单例 LLM 客户端 ────────────────────────────────────────────────────────────
 # 在首次使用时创建，进程生命周期内复用同一 AsyncOpenAI 实例（内置连接池）
 _llm_client: Optional[AsyncOpenAI] = None
+_config_override: dict = {}
+
+
+def update_config_override(patch: dict) -> None:
+    """热更新 LLM 配置（由 server /config/llm 调用），下次 get_client() 会使用新配置。"""
+    global _config_override, _llm_client
+    _config_override.update({k: v for k, v in patch.items() if v})
+    _llm_client = None  # 强制下次重建客户端
 
 
 def get_client() -> AsyncOpenAI:
     global _llm_client
     if _llm_client is None:
         import httpx as _httpx
-        cfg = llm_cfg()
+        cfg = dict(llm_cfg())
+        cfg.update(_config_override)  # 运行时覆盖优先
         # plan B：移除全部超时（解题模式以解决问题为核心目标，长耗时不是问题）
         # 使用 httpx.Timeout(None) 显式禁用 read/write/connect 全部超时
         _llm_client = AsyncOpenAI(
