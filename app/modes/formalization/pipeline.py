@@ -214,14 +214,21 @@ async def formalize_stream(
         and not (current_code or "").strip()
     ):
         tools_ar = FormalizationTools()
-        async for chunk in run_formalization_aristotle(
-            statement,
-            lang=lang or "zh",
-            skip_search=skip_search,
-            tools=tools_ar,
-        ):
-            yield chunk
-        return
+        try:
+            async for chunk in run_formalization_aristotle(
+                statement,
+                lang=lang or "zh",
+                skip_search=skip_search,
+                tools=tools_ar,
+            ):
+                yield chunk
+            return
+        except Exception as _ar_err:
+            import logging as _logging
+            _logging.getLogger(__name__).warning(
+                "Aristotle formalization failed (%s), falling back to local pipeline", _ar_err
+            )
+            # 降级到本地 pipeline（不中断 SSE，继续 yield）
 
     tools = FormalizationTools(
         extract_keywords=_extract_keywords,

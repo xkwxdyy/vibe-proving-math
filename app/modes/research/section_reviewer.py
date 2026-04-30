@@ -350,7 +350,7 @@ class SectionReviewFinalReport:
                     continue
                 agg_issues.append({
                     "issue_type": "CITATION",
-                    "description": str(iss.get("description") or iss.get("claim") or ""),
+                    "description": str(iss.get("description") or iss.get("claim") or iss.get("detail") or ""),
                     "fix_suggestion": str(iss.get("fix_suggestion") or ""),
                     "location": sec_title,
                     "source_quote": str(iss.get("source_quote") or ""),

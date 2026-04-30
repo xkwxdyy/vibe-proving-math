@@ -973,6 +973,13 @@ async def _review_single_theorem(
                     ))
         except Exception as e:
             logger.debug("_review_single_theorem verify failed for %s: %s", location_prefix, e)
+            issues.append(IssueReport(
+                location=location_prefix,
+                issue_type="verification_error",
+                description=f"步骤验证调用失败，无法确认证明正确性: {e}",
+                fix_suggestion="请检查证明步骤格式是否符合预期",
+                confidence=0.5,
+            ))
     elif check_logic:
         verify_result, statement_issues = await _review_statement_without_proof(tp)
         issues.extend(statement_issues)
