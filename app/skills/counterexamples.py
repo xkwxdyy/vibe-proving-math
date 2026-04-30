@@ -93,10 +93,21 @@ async def find_counterexample(
     except Exception as e:
         return CounterexampleResult(found=False, note=f"调用失败: {e}")
 
+    if not isinstance(data, dict):
+        return CounterexampleResult(found=False, note="解析结果非预期格式")
+
+    found_raw = data.get("found", False)
+    if isinstance(found_raw, bool):
+        found = found_raw
+    elif isinstance(found_raw, str):
+        found = found_raw.strip().lower() not in ("false", "0", "no", "")
+    else:
+        found = bool(found_raw)
+
     return CounterexampleResult(
-        found=bool(data.get("found", False)) if isinstance(data, dict) else False,
-        counterexample=data.get("counterexample", "") if isinstance(data, dict) else "",
-        explanation=data.get("explanation", "") if isinstance(data, dict) else "",
-        confidence=_safe_float(data.get("confidence")) if isinstance(data, dict) else 0.0,
-        note=data.get("note", "") if isinstance(data, dict) else "",
+        found=found,
+        counterexample=data.get("counterexample", ""),
+        explanation=data.get("explanation", ""),
+        confidence=_safe_float(data.get("confidence")),
+        note=data.get("note", ""),
     )
