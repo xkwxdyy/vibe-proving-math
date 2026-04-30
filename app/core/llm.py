@@ -87,6 +87,13 @@ def reset_client() -> None:
     _llm_client = None
 
 
+def _effective_model(model: Optional[str] = None) -> str:
+    """返回有效模型名称：显式参数 > 运行时覆盖 > config.toml 默认值。"""
+    if model:
+        return _normalize_model(model)
+    return _normalize_model(_config_override.get("model") or llm_cfg().get("model", "gpt-4o"))
+
+
 # ── Prompt 工具 ────────────────────────────────────────────────────────────────
 MAX_PROMPT_CHARS = 16_000  # 约 4000 tokens，超出则从中间截断（保留头尾）
 
@@ -199,10 +206,9 @@ async def chat(
 ) -> str:
     """单次非流式调用，返回完整回复字符串。空响应时自动重试（最多 _retries 次）。"""
     import asyncio as _asyncio
-    cfg = llm_cfg()
     client = get_client()
     messages = _build_messages(user_message, system=system, extra_messages=extra_messages)
-    _model = _normalize_model(model or cfg["model"])
+    _model = _effective_model(model)
 
     last_content = ""
     for attempt in range(_retries + 1):
@@ -276,7 +282,7 @@ async def stream_chat_with_reasoning(
     messages = _build_messages(user_message, system=system, extra_messages=extra_messages)
 
     stream = await client.chat.completions.create(
-        model=_normalize_model(model or cfg["model"]),
+        model=_effective_model(model),
         messages=messages,
         temperature=temperature,
         max_tokens=max_tokens,
@@ -309,10 +315,9 @@ async def chat_json(
     减少无效 API 调用和等待时间（原 2s sleep × 6 = 12s 最坏等待）。
     """
     import asyncio as _asyncio
-    cfg = llm_cfg()
     client = get_client()
     messages = _build_messages(user_message, system=system)
-    _model = _normalize_model(model or cfg["model"])
+    _model = _effective_model(model)
 
     if schema:
         hint = f"\n\nRespond with valid JSON matching: {json.dumps(schema)}"

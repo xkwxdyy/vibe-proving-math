@@ -331,7 +331,7 @@ class SectionReviewFinalReport:
     sections_detail: list[dict[str, Any]] = field(default_factory=list)
 
     def summary_dict(self) -> dict[str, Any]:
-        # 从每个章节的 logic_issues 聚合出前端 issue 列表
+        # 从每个章节的 logic_issues + citation_issues 聚合出前端 issue 列表
         agg_issues: list[dict[str, Any]] = []
         for sec in self.sections_detail:
             sec_title = sec.get("section_title", "")
@@ -345,6 +345,28 @@ class SectionReviewFinalReport:
                     "location": sec_title,
                     "source_quote": str(iss.get("source_quote") or ""),
                 })
+            for iss in sec.get("citation_issues") or []:
+                if not isinstance(iss, dict):
+                    continue
+                agg_issues.append({
+                    "issue_type": "CITATION",
+                    "description": str(iss.get("description") or iss.get("claim") or ""),
+                    "fix_suggestion": str(iss.get("fix_suggestion") or ""),
+                    "location": sec_title,
+                    "source_quote": str(iss.get("source_quote") or ""),
+                })
+
+        # parse_failed 时把 self.issues（解析错误信息）补进摘要
+        if self.parse_failed and not agg_issues:
+            for iss in (self.issues or []):
+                if isinstance(iss, dict):
+                    agg_issues.append({
+                        "issue_type": "PARSE_ERROR",
+                        "description": str(iss.get("description") or ""),
+                        "fix_suggestion": str(iss.get("fix_suggestion") or ""),
+                        "location": "",
+                        "source_quote": "",
+                    })
 
         # 只保留有问题的章节用于前端卡片渲染
         problematic = [
