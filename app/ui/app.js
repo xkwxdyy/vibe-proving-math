@@ -2832,12 +2832,7 @@ async function handleLearning(statement) {
         stream: true,
         project_id: AppState.projectId,
         user_id: AppState.userId,
-        kb_constrained: AppState.settings.kbConstrained,
         lang,
-        text_attachments: (AppState.settings.attachments || [])
-          .filter(a => a.content && typeof a.content === 'string')
-          .map(a => a.content)
-          .filter(Boolean) || undefined,
       }),
       signal: ctrl.signal,
     });
@@ -2897,7 +2892,10 @@ async function handleLearning(statement) {
     }
   } catch (err) {
     if (err && err.name === 'AbortError') {
-      /* stopped */
+      // 用户主动停止：仅关闭流式状态，不将半成品标记为完成或写入历史
+      AppState.set('isStreaming', false);
+      stopWaitTips();
+      return;
     } else {
       AppState.set('isStreaming', false);
       addErrorInline(contentEl, t('ui.err.learning', { e: err.message || err }));
@@ -3613,7 +3611,7 @@ function renderSectionCardHtml(sec, index) {
     return `
       <div class="issue-item">
         <div class="issue-content">
-          <div><span class="issue-level medium">[${isZh ? 'CITE' : 'CITE'}]</span>&nbsp;${renderMathText(iss.detail || '')}</div>
+          <div><span class="issue-level medium">[${isZh ? 'CITE' : 'CITE'}]</span>&nbsp;${renderMathText(iss.detail || iss.description || '')}</div>
           ${quoteHtml}
           ${fixHtml}
         </div>
