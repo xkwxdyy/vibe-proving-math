@@ -2957,7 +2957,7 @@ function parseLearningOutput(text, opts) {
   headings.forEach((h, i) => {
     const bodyStart = h.end;
     const bodyEnd   = i + 1 < headings.length ? headings[i + 1].pos : text.length;
-    const content = text.slice(bodyStart, bodyEnd).trim();
+    let content = text.slice(bodyStart, bodyEnd).trim();
     if (!content) {
       if (!allowEmpty) return;
       // plan F.3 (T55)：流式空段不再用单薄的 "..."，改为可读的等待提示 + 微动画占位骨架
@@ -4318,15 +4318,24 @@ async function _handleReviewingPdf(attach, focusText) {
     }
 
     const pill = contentEl.querySelector('#rv-status');
-    if (pill) pill.classList.add('done');
     const txt = contentEl.querySelector('.rv-status-text');
-    if (txt) txt.textContent = isZh ? '审查完成' : 'Review complete';
 
     if (finalReport) {
+      if (pill) pill.classList.add('done');
+      if (txt) txt.textContent = isZh ? '审查完成' : 'Review complete';
       const fullReport = Object.assign({}, finalReport, { theorem_reviews: partials });
       renderReviewSummary(contentEl.querySelector('#rv-final'), fullReport);
       const bubble = contentEl.closest('.msg-bubble');
       if (bubble) addMessageActions(bubble, JSON.stringify(fullReport, null, 2));
+    } else {
+      // 流式中途断开：未收到 final 帧，给出警示而非"完成"
+      if (pill) pill.classList.add('done');
+      if (txt) txt.textContent = isZh ? '审查未完成（数据不完整）' : 'Review incomplete';
+      if (partials.length > 0) {
+        // 已有部分章节结果，尝试渲染已有内容
+        const partial = { overall_verdict: 'NotChecked', stats: { sections_checked: partials.length }, issues: [], theorem_reviews: partials };
+        renderReviewSummary(contentEl.querySelector('#rv-final'), partial);
+      }
     }
     saveCurrentSession(isZh ? '证明审查 (PDF)' : 'Proof review (PDF)');
     Attachments.clear();
@@ -5251,7 +5260,7 @@ function bindEvents() {
     if (!files.length) return;
     const allowExt = /\.(pdf|tex|txt|md|mmd)$/i;
     const _MAX_TEXT_SIZE = 500 * 1024;  // 500 KB for text files
-    const _MAX_PDF_SIZE  = 30 * 1024 * 1024;  // 30 MB for PDFs
+    const _MAX_PDF_SIZE  = 50 * 1024 * 1024;  // 50 MB for PDFs (matches server limit)
     for (const file of files) {
       if (!allowExt.test(file.name)) {
         showToast('error', t('ui.err.unsupportedFile'));
@@ -5260,7 +5269,7 @@ function bindEvents() {
       const isPdf = /\.pdf$/i.test(file.name);
       if (isPdf) {
         if (file.size > _MAX_PDF_SIZE) {
-          showToast('error', AppState.lang === 'zh' ? 'PDF 超过 30 MB 上限' : 'PDF exceeds 30 MB limit');
+          showToast('error', AppState.lang === 'zh' ? 'PDF 超过 50 MB 上限' : 'PDF exceeds 50 MB limit');
           continue;
         }
         // Store the raw File object for direct upload to /review_pdf_stream

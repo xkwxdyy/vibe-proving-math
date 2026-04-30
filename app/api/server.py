@@ -774,6 +774,7 @@ async def review_pdf_stream(
             check_logic=check_logic,
             check_citations=check_citations,
             check_symbols=check_symbols,
+            lang=lang or "zh",
         )
 
     return await _run_review_stream(
