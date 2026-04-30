@@ -103,6 +103,8 @@ async def search_theorems(
     results: list[TheoremMatch] = []
 
     for r in raw:
+        if not isinstance(r, dict):
+            continue  # 跳过非 dict 条目，防止上游数据污染导致崩溃
         paper = r.get("paper") or {}
         if not isinstance(paper, dict):
             paper = {}

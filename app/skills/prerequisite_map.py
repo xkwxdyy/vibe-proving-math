@@ -246,6 +246,8 @@ async def prerequisite_map(
         # LLM 返回字符串而非列表时，按常见分隔符拆分
         import re as _re
         raw_path = [s.strip() for s in _re.split(r'[→\->,;]', raw_path) if s.strip()]
+    elif not isinstance(raw_path, list):
+        raw_path = []  # 非 str 非 list（如 None/int/dict），安全降级为空列表
     return PrerequisiteMap(
         prerequisites=final_prereqs[:5],
         learning_path=raw_path,

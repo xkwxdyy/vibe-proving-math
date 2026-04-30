@@ -30,7 +30,7 @@ from fastapi import FastAPI, HTTPException, Query, UploadFile, File, Form
 from fastapi.responses import StreamingResponse, JSONResponse, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from core.config import llm_cfg, load_config
 from core.logging_setup import setup_logging
@@ -108,7 +108,7 @@ class SolveLatexRequest(BaseModel):
 
 class ReviewRequest(BaseModel):
     proof_text: str = ""
-    max_theorems: int = 8
+    max_theorems: int = Field(default=8, ge=1, le=50)
     user_id: Optional[str] = "anonymous"
     lang: Optional[str] = None
     mode: str = "pipeline"

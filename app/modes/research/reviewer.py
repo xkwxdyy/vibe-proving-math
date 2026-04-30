@@ -707,6 +707,8 @@ async def _review_statement_without_proof(tp: TheoremProofPair) -> tuple[Verific
     issues: list[IssueReport] = []
     verdict = "passed"
     for idx, item in enumerate(issue_dicts, start=1):
+        if not isinstance(item, dict):
+            continue  # 跳过非 dict 元素，防止 item.get() AttributeError
         issue_type = item.get("issue_type", "gap")
         if issue_type not in {"gap", "critical_error", "citation_not_found"}:
             issue_type = "gap"
