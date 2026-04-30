@@ -44,7 +44,7 @@ def ts_cfg() -> dict[str, Any]:
 
 
 def latrace_cfg() -> dict[str, Any]:
-    return load_config()["latrace"]
+    return load_config().get("latrace", {})
 
 
 def paper_review_agent_cfg() -> dict[str, Any]:

@@ -24,6 +24,9 @@ PyMuPDF>=1.24.0         # fitz，PDF 解析降级方案
 ftfy>=6.1.0             # Unicode/Mojibake 修复（pdf_fix 模块使用）
 requests>=2.31.0        # MinerU 测试脚本使用（httpx 已覆盖异步路径）
 
+# ── HTML 解析（MacTutor 数学史检索）────────────────────────────────────────────
+beautifulsoup4>=4.12.0  # MacTutor 页面解析（skills/mactutor_search.py）
+
 # ── 测试 ──────────────────────────────────────────────────────────────────────
 pytest>=8.0.0
 pytest-asyncio>=0.23.0

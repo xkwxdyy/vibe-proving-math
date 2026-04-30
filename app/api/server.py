@@ -692,9 +692,24 @@ async def review_pdf_stream(
     if not content:
         raise HTTPException(status_code=422, detail="上传文件不能为空")
 
+    # 文件大小限制（在 SSE 流开始前校验，保证返回正确 HTTP 状态码）
+    _MAX_PDF_BYTES = 50 * 1024 * 1024   # 50 MB
+    _MAX_TEXT_BYTES = 1 * 1024 * 1024   # 1 MB
     text_exts = {".tex", ".txt", ".md", ".mmd"}
     image_exts = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
     content_type = (file.content_type or "").lower()
+
+    is_pdf = (suffix == ".pdf" or content_type == "application/pdf")
+    is_image = (suffix in image_exts or content_type.startswith("image/"))
+    is_text = (suffix in text_exts or content_type in {"text/plain", "text/markdown"})
+
+    if not (is_pdf or is_image or is_text):
+        raise HTTPException(status_code=415, detail="仅支持 .pdf / .tex / .txt / .md / .mmd / 图片")
+
+    if is_pdf and len(content) > _MAX_PDF_BYTES:
+        raise HTTPException(status_code=413, detail=f"PDF 文件超过 50 MB 限制")
+    if is_text and len(content) > _MAX_TEXT_BYTES:
+        raise HTTPException(status_code=413, detail=f"文本文件超过 1 MB 限制")
 
     from modes.research.reviewer import review_text, review_paper_images
     from modes.research.section_reviewer import run_pdf_nanonets_section_review
@@ -718,7 +733,7 @@ async def review_pdf_stream(
         return ""
 
     async def _factory(_on_progress, _on_result):
-        if suffix == ".pdf" or content_type == "application/pdf":
+        if is_pdf:
             return await run_pdf_nanonets_section_review(
                 content,
                 source=filename,
@@ -729,7 +744,7 @@ async def review_pdf_stream(
                 lang=lang or "zh",
             )
 
-        if suffix in image_exts or content_type.startswith("image/"):
+        if is_image:
             image_payload = _upload_to_data_url(content, content_type, filename)
             return await review_paper_images(
                 [image_payload],
@@ -743,21 +758,20 @@ async def review_pdf_stream(
                 model=model,
                 lang=lang or "zh",
             )
-        if suffix in text_exts:
-            text = extract_text_file(content, filename)
-            if not text:
-                raise ValueError("无法解析上传文本")
-            return await review_text(
-                text,
-                source=filename,
-                max_theorems=max_theorems,
-                progress=_on_progress,
-                result_cb=_on_result,
-                check_logic=check_logic,
-                check_citations=check_citations,
-                check_symbols=check_symbols,
-            )
-        raise HTTPException(status_code=415, detail="仅支持 .pdf / .tex / .txt / .md / .mmd / 图片")
+        # is_text（已在流外校验，此处必然为文本类型）
+        text = extract_text_file(content, filename)
+        if not text:
+            raise ValueError("无法解析上传文本")
+        return await review_text(
+            text,
+            source=filename,
+            max_theorems=max_theorems,
+            progress=_on_progress,
+            result_cb=_on_result,
+            check_logic=check_logic,
+            check_citations=check_citations,
+            check_symbols=check_symbols,
+        )
 
     return await _run_review_stream(
         _factory,
