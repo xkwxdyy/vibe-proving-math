@@ -19,7 +19,7 @@ import json
 from dataclasses import dataclass
 from typing import Optional
 
-from core.llm import chat_json
+from core.llm import chat_json, lang_sys_suffix
 
 _CE_SYSTEM = """You are a mathematical counterexample expert.
 Your task is to try to construct a counterexample to the given mathematical claim.
@@ -74,12 +74,14 @@ async def find_counterexample(
     *,
     context: str = "",
     model: Optional[str] = None,
+    lang: Optional[str] = None,
 ) -> CounterexampleResult:
     """尝试为 statement 构造反例。"""
     user_msg = _CE_USER_TEMPLATE.format(statement=statement, context=context)
 
+    sys_prompt = _CE_SYSTEM + lang_sys_suffix(lang)
     try:
-        raw = await chat_json(user_msg, system=_CE_SYSTEM, model=model)
+        raw = await chat_json(user_msg, system=sys_prompt, model=model)
         data = json.loads(raw) if isinstance(raw, str) else raw
     except Exception as e:
         return CounterexampleResult(found=False, note=f"调用失败: {e}")

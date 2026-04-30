@@ -20,7 +20,7 @@ import json
 from dataclasses import dataclass, field
 from typing import Optional
 
-from core.llm import chat_json, chat
+from core.llm import chat_json, chat, lang_sys_suffix
 from skills.search_theorems import search_theorems, format_theorems_for_prompt, TheoremMatch
 
 _DIRECT_PROVING_SYSTEM = """You are an expert mathematician and formal proof assistant.
@@ -65,6 +65,7 @@ async def direct_proving(
     use_search: bool = True,
     model: Optional[str] = None,
     extra_context: Optional[str] = None,
+    lang: Optional[str] = None,
 ) -> "ProofResult":
     """尝试直接证明 statement，返回 ProofResult。"""
     # 1. 搜索相关定理作为参考上下文
@@ -86,8 +87,9 @@ async def direct_proving(
         context=context_text,
     )
 
+    sys_prompt = _DIRECT_PROVING_SYSTEM + lang_sys_suffix(lang)
     try:
-        raw = await chat_json(user_msg, system=_DIRECT_PROVING_SYSTEM, model=model)
+        raw = await chat_json(user_msg, system=sys_prompt, model=model)
         data = json.loads(raw) if isinstance(raw, str) else raw
     except (json.JSONDecodeError, Exception) as e:
         return ProofResult(

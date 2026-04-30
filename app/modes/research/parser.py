@@ -26,7 +26,7 @@ from typing import Optional
 
 import httpx
 
-from core.llm import chat_json
+from core.llm import chat_json, lang_sys_suffix
 from core.text_sanitize import ensure_inline_math, strip_non_math_latex
 
 logger = logging.getLogger(__name__)
@@ -229,7 +229,7 @@ def _clean_latex(text: Optional[str]) -> Optional[str]:
 
 # ── LLM 降级提取 ───────────────────────────────────────────────────────────────
 
-async def _llm_extract_from_text(text: str, source: str) -> list[TheoremProofPair]:
+async def _llm_extract_from_text(text: str, source: str, lang: str = "zh") -> list[TheoremProofPair]:
     """降级：用 LLM 从非结构化文本（如 PDF 提取的文本）中识别定理-证明对。
 
     若文本中完全找不到 theorem/lemma/proposition/corollary/proof 等关键字，
@@ -248,6 +248,7 @@ async def _llm_extract_from_text(text: str, source: str) -> list[TheoremProofPai
         '{"env_type": "theorem|lemma|proposition|corollary|definition", '
         '"ref": "optional label", "statement": "...", "proof": "...or null"}\n'
         "Output JSON array only."
+        + lang_sys_suffix(lang)
     )
     user_msg = f"Extract theorem-proof pairs from this mathematical text:\n\n{truncated}"
 

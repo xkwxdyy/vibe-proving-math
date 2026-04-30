@@ -161,11 +161,20 @@ _LANG_SUFFIX_ZH = (
     "Absolutely NO English prose is allowed."
 )
 
+_LANG_SUFFIX_EN = (
+    "\n\nCRITICAL — LANGUAGE REQUIREMENT: You MUST write your ENTIRE response in English. "
+    "This applies to: headings, proof steps, explanations, examples, summaries, and all prose. "
+    "LaTeX math formulas ($...$, $$...$$) stay in standard mathematical notation as-is. "
+    "Absolutely NO Chinese or other non-English prose is allowed."
+)
+
 
 def lang_sys_suffix(lang: Optional[str]) -> str:
-    """返回需要追加到 system prompt 末尾的语言指令（仅 zh 非空）。"""
+    """返回需要追加到 system prompt 末尾的语言指令。"""
     if lang == "zh":
         return _LANG_SUFFIX_ZH
+    if lang == "en":
+        return _LANG_SUFFIX_EN
     return ""
 
 

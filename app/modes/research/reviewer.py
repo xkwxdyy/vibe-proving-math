@@ -1114,6 +1114,7 @@ async def review_text(
     check_logic: bool = True,
     check_citations: bool = True,
     check_symbols: bool = True,
+    lang: str = "zh",
 ) -> ReviewReport:
     """
     审查用户直接提交的证明文本（替代 arXiv 入口）。
@@ -1150,7 +1151,7 @@ async def review_text(
     # 路径 2：LLM 兜底（静默，不向用户暴露内部步骤）
     if not pairs:
         try:
-            pairs = await _llm_extract_from_text(cleaned, source=source)
+            pairs = await _llm_extract_from_text(cleaned, source=source, lang=lang)
         except Exception as exc:
             logger.warning("review_text: LLM extract failed: %s: %s", type(exc).__name__, exc)
             pairs = []

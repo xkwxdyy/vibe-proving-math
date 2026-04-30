@@ -28,7 +28,6 @@ from typing import Awaitable, Callable, Optional
 
 logger = logging.getLogger(__name__)
 
-from core.llm import lang_sys_suffix
 from core.text_sanitize import strip_non_math_latex, strip_non_math_latex_preserve_code, sanitize_dict
 from skills.direct_proving import direct_proving, ProofResult
 from skills.subgoal_decomp import subgoal_decomp, DecompResult
@@ -159,19 +158,10 @@ async def _attempt_proof_with_revision(
     failed_paths 记录每轮修订中验证器报出的错误，供后续分解使用。
     """
     failed_paths: list[str] = []
-    _ls = lang_sys_suffix(lang)
-    # 语言指令注入 extra_context（direct_proving 通过此字段传入系统补充信息）
-    _lang_ctx = (
-        "LANGUAGE: Write your entire proof in Simplified Chinese (简体中文). "
-        "Keep LaTeX formulas as-is. No English prose.\n\n"
-        if lang == "zh" else ""
-    )
 
     async def _safe_prove(stmt: str, ctx: Optional[str] = None) -> ProofResult:
-        # 语言指令前缀注入 extra_context
-        merged_ctx = (_lang_ctx + ctx) if _lang_ctx and ctx else (_lang_ctx or ctx)
         try:
-            return await direct_proving(stmt, use_search=True, model=model, extra_context=merged_ctx)
+            return await direct_proving(stmt, use_search=True, model=model, extra_context=ctx, lang=lang)
         except Exception as e:
             return ProofResult(
                 proof="", confidence=0.0, status="failed",
@@ -293,7 +283,7 @@ async def _solve_inner(statement: str, model=None, progress: ProgressCb = None, 
     if is_interrogative:
         await _emit(progress, "counterexample", "检测到疑问式命题，优先进行反例测试…")
         try:
-            ce_early = await find_counterexample(statement, model=model)
+            ce_early = await find_counterexample(statement, model=model, lang=lang)
             if ce_early.found and ce_early.confidence >= 0.80:
                 return SolverResult(
                     blueprint=(
@@ -345,7 +335,7 @@ async def _solve_inner(statement: str, model=None, progress: ProgressCb = None, 
     if logical_failures:
         ce_context = "Previous proof attempts revealed these difficulties:\n" + "\n".join(logical_failures[-2:])
     try:
-        ce_result = await find_counterexample(statement, context=ce_context, model=model)
+        ce_result = await find_counterexample(statement, context=ce_context, model=model, lang=lang)
         if ce_result.found and ce_result.confidence >= 0.75:
             # 高置信度找到反例 → 命题可能为假，直接报告
             return SolverResult(
@@ -393,7 +383,7 @@ async def _solve_inner(statement: str, model=None, progress: ProgressCb = None, 
         decomp_context += "\n".join(failed_paths) + "\n\n"
         decomp_context += "Please propose a decomposition strategy that AVOIDS these pitfalls.\n"
 
-    decomp = await subgoal_decomp(statement, model=model, extra_context=decomp_context)
+    decomp = await subgoal_decomp(statement, model=model, extra_context=decomp_context, lang=lang)
 
     if not decomp.subgoals:
         # 汇总所有失败原因，全部暴露给用户

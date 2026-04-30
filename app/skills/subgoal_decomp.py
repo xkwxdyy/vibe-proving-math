@@ -14,7 +14,7 @@ import json
 from dataclasses import dataclass, field
 from typing import Optional
 
-from core.llm import chat_json
+from core.llm import chat_json, lang_sys_suffix
 
 _DECOMP_SYSTEM = """You are an expert mathematician specializing in proof strategy.
 Your task is to decompose a complex mathematical statement into 2-4 manageable subgoals.
@@ -86,6 +86,7 @@ async def subgoal_decomp(
     *,
     model: Optional[str] = None,
     extra_context: str = "",
+    lang: Optional[str] = None,
 ) -> DecompResult:
     """将 statement 分解为子目标，返回 DecompResult。"""
     user_msg = _DECOMP_USER_TEMPLATE.format(
@@ -93,8 +94,9 @@ async def subgoal_decomp(
         extra_context=extra_context,
     )
 
+    sys_prompt = _DECOMP_SYSTEM + lang_sys_suffix(lang)
     try:
-        raw = await chat_json(user_msg, system=_DECOMP_SYSTEM, model=model)
+        raw = await chat_json(user_msg, system=sys_prompt, model=model)
         data = json.loads(raw) if isinstance(raw, str) else raw
     except Exception as e:
         return DecompResult(

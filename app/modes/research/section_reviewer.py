@@ -51,9 +51,20 @@ SECTION_REVIEW_SCHEMA: dict[str, Any] = {
     ],
     "proofs_found": [{"label": "string", "summary": "string", "source_quote": "string"}],
     "logic_issues": [
-        {"severity": "low | medium | high | critical", "description": "string", "source_quote": "string"}
+        {
+            "severity": "low | medium | high | critical",
+            "description": "string — 问题描述",
+            "fix_suggestion": "string — 具体可操作的改进建议，需引用具体定理/引理编号和缺失步骤",
+            "source_quote": "string — 原文短引",
+        }
     ],
-    "citation_issues": [{"detail": "string", "source_quote": "string"}],
+    "citation_issues": [
+        {
+            "detail": "string — 引用问题描述",
+            "fix_suggestion": "string — 建议如何补全或修正该引用",
+            "source_quote": "string — 原文短引",
+        }
+    ],
     "confidence": "number 0-1 — 对本节审查整体置信度",
     "source_quotes": [{"label": "string", "quote": "string"}],
 }
@@ -78,6 +89,13 @@ Rules:
    even if verdict is "Partial". A Partial verdict does not mean the proof is correct.
 6) Citation issues: only flag unclear or broken INTERNAL references visible in this section (e.g. broken numbering). Do NOT invent external library matches.
 7) source_quote fields must be verbatim excerpts from the provided section text (short).
+8) For every logic_issue and citation_issue, you MUST provide a non-empty fix_suggestion:
+   a concrete, actionable recommendation referencing the specific theorem/lemma number
+   and the exact missing or erroneous step (e.g. "Add explicit verification for the case
+   p < 25 in Lemma 2.4" or "Cite [X] Theorem 3.1 to justify the centralizer argument").
+9) If a section has NO logic_issues and NO citation_issues, output main_claims=[],
+   proofs_found=[], source_quotes=[] — do not fabricate issues, but skip verbose
+   summaries of clean sections to keep the review focused.
 """
 
 
@@ -313,17 +331,45 @@ class SectionReviewFinalReport:
     sections_detail: list[dict[str, Any]] = field(default_factory=list)
 
     def summary_dict(self) -> dict[str, Any]:
+        # 从每个章节的 logic_issues 聚合出前端 issue 列表
+        agg_issues: list[dict[str, Any]] = []
+        for sec in self.sections_detail:
+            sec_title = sec.get("section_title", "")
+            for iss in sec.get("logic_issues") or []:
+                if not isinstance(iss, dict):
+                    continue
+                agg_issues.append({
+                    "issue_type": str(iss.get("severity") or "info").upper(),
+                    "description": str(iss.get("description") or ""),
+                    "fix_suggestion": str(iss.get("fix_suggestion") or ""),
+                    "location": sec_title,
+                    "source_quote": str(iss.get("source_quote") or ""),
+                })
+
+        # 只保留有问题的章节用于前端卡片渲染
+        problematic = [
+            sec for sec in self.sections_detail
+            if (sec.get("logic_issues") or sec.get("citation_issues"))
+        ]
+
+        # 补全前端 stats 行期望的字段名
+        stats = dict(self.stats)
+        stats.setdefault("theorems_checked", self.sections_reviewed)
+        stats.setdefault("issues_found", len(agg_issues))
+        stats.setdefault("citations_checked", 0)
+
         return {
             "source": self.source,
             "overall_verdict": self.overall_verdict,
-            "stats": self.stats,
-            "issues": self.issues,
+            "stats": stats,
+            "issues": agg_issues,
             "parse_failed": self.parse_failed,
             "parser_source": self.parser_source,
             "paper_title": self.paper_title,
             "sections_reviewed": self.sections_reviewed,
             "scan_completed": self.scan_completed,
             "mode": "nanonets_section",
+            "theorem_reviews": problematic,
         }
 
 
