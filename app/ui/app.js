@@ -891,7 +891,8 @@ function autoWrapMath(text) {
   s = protect(s, /\$[^$\n]+\$/g);
 
   // 1b) 兜底：纯 `\cmd` 无参形式（如 \alpha、\cdot、\to）
-  s = s.replace(/(?<![\\$\w])(\\(?:frac|sqrt|sum|prod|int|lim|sup|inf|mathbb|mathcal|mathfrak|mathrm|mathbf|mathit|operatorname|forall|exists|in|notin|subset|subseteq|cup|cap|leq|geq|neq|to|mapsto|Rightarrow|Leftrightarrow|alpha|beta|gamma|delta|epsilon|varepsilon|zeta|eta|theta|vartheta|iota|kappa|lambda|mu|nu|xi|pi|rho|sigma|tau|upsilon|phi|varphi|chi|psi|omega|Gamma|Delta|Theta|Lambda|Xi|Pi|Sigma|Phi|Psi|Omega|infty|partial|nabla|cdot|cdots|ldots|times|div|pm|mp|approx|equiv|sim|propto|circ|prime)(?:\{[^{}]*\}|\b))/g,
+  // 末尾用 (?!\[a-zA-Z]) 替代 \b，使 \chi_\sigma 这类「命令+下标」也能被包进 $...$
+  s = s.replace(/(?<![\\$\w])(\\(?:frac|sqrt|sum|prod|int|lim|sup|inf|mathbb|mathcal|mathfrak|mathrm|mathbf|mathit|operatorname|forall|exists|in|notin|subset|subseteq|cup|cap|leq|geq|neq|to|mapsto|Rightarrow|Leftrightarrow|alpha|beta|gamma|delta|epsilon|varepsilon|zeta|eta|theta|vartheta|iota|kappa|lambda|mu|nu|xi|pi|rho|sigma|tau|upsilon|phi|varphi|chi|psi|omega|Gamma|Delta|Theta|Lambda|Xi|Pi|Sigma|Phi|Psi|Omega|infty|partial|nabla|cdot|cdots|ldots|times|div|pm|mp|approx|equiv|sim|propto|circ|prime)(?:\{[^{}]*\}|(?![a-zA-Z])))/g,
     '$$$1$$');
 
   // 2) 含数学符号的小段（限定 ≤30 字符，避免吞掉整句）
@@ -1085,19 +1086,12 @@ const AppState = {
     return uid;
   })(),
   settings: {
-    stream: true,
     level: 'undergraduate',
     maxTheorems: 5,
     attachments: [],   // [{name, size, content}]
-    memoryEnabled: true,
-    citationCheck: true,
     kbConstrained: false,  // 仅在知识库范围内回答
     // 审查选项
     checkLogic: true,      // 审查逻辑漏洞
-    checkCitations: true,  // 核查定理引用
-    checkSymbols: true,    // 检查符号一致性
-    // 深度思考
-    extendedThinking: false,  // Extended Thinking（仅支持 Claude 模型）
   },
   history: [],
   isStreaming: false,
@@ -1166,9 +1160,11 @@ async function _loadPdfMeta(file, attachment) {
    5.2 PDF 缩略图 Tooltip
 ───────────────────────────────────────────────────────────── */
 let _thumbTooltipEl = null;
+let _hideTooltipTimer = null;
 
 function _showPdfThumbTooltip(chipEl, thumbnails) {
-  _hidePdfThumbTooltip();
+  if (_hideTooltipTimer) { clearTimeout(_hideTooltipTimer); _hideTooltipTimer = null; }
+  _hidePdfThumbTooltipNow();
   if (!thumbnails?.length) return;
 
   const tooltip = document.createElement('div');
@@ -1195,15 +1191,20 @@ function _showPdfThumbTooltip(chipEl, thumbnails) {
 }
 
 function _hidePdfThumbTooltip() {
-  if (_thumbTooltipEl) {
-    _thumbTooltipEl.remove();
-    _thumbTooltipEl = null;
-  }
+  if (_hideTooltipTimer) clearTimeout(_hideTooltipTimer);
+  _hideTooltipTimer = setTimeout(_hidePdfThumbTooltipNow, 150);
+}
+
+function _hidePdfThumbTooltipNow() {
+  if (_thumbTooltipEl) { _thumbTooltipEl.remove(); _thumbTooltipEl = null; }
+  _hideTooltipTimer = null;
 }
 
 /* ─────────────────────────────────────────────────────────────
    5.3 PDF 全屏查看器
 ───────────────────────────────────────────────────────────── */
+let _viewerEscHandler = null;
+
 function openPdfViewer(url, name, pageCount) {
   const modal = document.getElementById('pdf-viewer-modal');
   if (!modal) return;
@@ -1215,13 +1216,13 @@ function openPdfViewer(url, name, pageCount) {
   if (iframe) iframe.src = url;
   modal.style.display = 'flex';
 
-  const _onKey = (e) => {
-    if (e.key === 'Escape') { closePdfViewer(); document.removeEventListener('keydown', _onKey); }
-  };
-  document.addEventListener('keydown', _onKey);
+  if (_viewerEscHandler) document.removeEventListener('keydown', _viewerEscHandler);
+  _viewerEscHandler = (e) => { if (e.key === 'Escape') closePdfViewer(); };
+  document.addEventListener('keydown', _viewerEscHandler);
 }
 
 function closePdfViewer() {
+  if (_viewerEscHandler) { document.removeEventListener('keydown', _viewerEscHandler); _viewerEscHandler = null; }
   const modal = document.getElementById('pdf-viewer-modal');
   if (!modal) return;
   const iframe = document.getElementById('pdf-viewer-iframe');
@@ -1232,6 +1233,8 @@ function closePdfViewer() {
 /* ─────────────────────────────────────────────────────────────
    5.3b PDF 缩略图画廊（聊天气泡点击后弹出）
 ───────────────────────────────────────────────────────────── */
+let _galleryEscHandler = null;
+
 function openPdfGallery(thumbnails, name, pageCount, objectUrl) {
   const modal = document.getElementById('pdf-gallery-modal');
   if (!modal) return;
@@ -1258,20 +1261,20 @@ function openPdfGallery(thumbnails, name, pageCount, objectUrl) {
 
   if (footerEl) {
     footerEl.innerHTML = objectUrl
-      ? `<button class="pdf-gallery-open-btn" onclick="openPdfViewer('${objectUrl}','${(name||'').replace(/'/g,"\\'")}',${pageCount||0});closePdfGallery()">在全屏查看器中打开</button>`
+      ? `<button class="pdf-gallery-open-btn" onclick="openPdfViewer('${objectUrl}','${(name||'').replace(/'/g,"\\'")}',${pageCount||0})">在全屏查看器中打开</button>`
       : '';
     footerEl.style.display = objectUrl ? '' : 'none';
   }
 
   modal.style.display = 'flex';
 
-  const _onKey = (e) => {
-    if (e.key === 'Escape') { closePdfGallery(); document.removeEventListener('keydown', _onKey); }
-  };
-  document.addEventListener('keydown', _onKey);
+  if (_galleryEscHandler) document.removeEventListener('keydown', _galleryEscHandler);
+  _galleryEscHandler = (e) => { if (e.key === 'Escape') closePdfGallery(); };
+  document.addEventListener('keydown', _galleryEscHandler);
 }
 
 function closePdfGallery() {
+  if (_galleryEscHandler) { document.removeEventListener('keydown', _galleryEscHandler); _galleryEscHandler = null; }
   const modal = document.getElementById('pdf-gallery-modal');
   if (modal) modal.style.display = 'none';
 }
@@ -2137,7 +2140,8 @@ function startWaitTips(containerEl, opts) {
  * CJK 字符占非空格字符比例 > 10% → 'zh'，否则 'en'。
  */
 function _detectLang(text) {
-  if (!text) return AppState.lang || 'zh';
+  if (AppState.lang) return AppState.lang;
+  if (!text) return 'zh';
   const cjk = (text.match(/[一-鿿㐀-䶿＀-￯]/g) || []).length;
   const total = text.replace(/\s/g, '').length;
   return (cjk / Math.max(total, 1)) > 0.1 ? 'zh' : 'en';
@@ -3330,7 +3334,7 @@ function buildVerdictBar(meta) {
 
   const refsHtml = '';
 
-  const memHtml = (meta.memCount > 0 && AppState.settings.memoryEnabled)
+  const memHtml = (meta.memCount > 0)
     ? `<div class="memory-hint">◌ ${t('ui.status.memHint', { n: meta.memCount })}</div>`
     : '';
 
@@ -3386,7 +3390,8 @@ function autoWrapReviewMath(text) {
   s = protect(s, /https?:\/\/\S+/g);
 
   s = _wrapLatexCommandsWithNestedBraces(s);
-  s = s.replace(/(?<![\\$\w])(\\(?:frac|sqrt|sum|prod|int|lim|sup|inf|mathbb|mathcal|mathfrak|mathrm|mathbf|mathit|operatorname|forall|exists|in|notin|subset|subseteq|cup|cap|leq|geq|neq|to|mapsto|mid|alpha|beta|gamma|delta|epsilon|varepsilon|zeta|eta|theta|vartheta|iota|kappa|lambda|mu|nu|xi|pi|rho|sigma|tau|upsilon|phi|varphi|chi|psi|omega|Gamma|Delta|Theta|Lambda|Xi|Pi|Sigma|Phi|Psi|Omega|infty|partial|nabla|cdot|cdots|ldots|times|div|pm|mp|approx|equiv|sim|propto|circ|prime)(?:\{[^{}]*\}|\b))/g,
+  // 末尾用 (?![a-zA-Z]) 替代 \b，使 \chi_\sigma 这类「命令+下标」也能被包进 $...$
+  s = s.replace(/(?<![\\$\w])(\\(?:frac|sqrt|sum|prod|int|lim|sup|inf|mathbb|mathcal|mathfrak|mathrm|mathbf|mathit|operatorname|forall|exists|in|notin|subset|subseteq|cup|cap|leq|geq|neq|to|mapsto|mid|alpha|beta|gamma|delta|epsilon|varepsilon|zeta|eta|theta|vartheta|iota|kappa|lambda|mu|nu|xi|pi|rho|sigma|tau|upsilon|phi|varphi|chi|psi|omega|Gamma|Delta|Theta|Lambda|Xi|Pi|Sigma|Phi|Psi|Omega|infty|partial|nabla|cdot|cdots|ldots|times|div|pm|mp|approx|equiv|sim|propto|circ|prime)(?:\{[^{}]*\}|(?![a-zA-Z])))/g,
     '$$$1$$');
 
   const wrap = (re) => {
@@ -3462,12 +3467,22 @@ function renderReviewField(label, value, { inline = false, className = '' } = {}
     </div>`;
 }
 
+/** severity/issue_type 字符串 → issue-level CSS class */
+function _issueLevelCls(level) {
+  const l = (level || '').toLowerCase().replace(/[^a-z_]/g, '');
+  if (['critical', 'high', 'error', 'critical_error'].includes(l)) return 'critical';
+  if (['medium', 'warning', 'gap'].includes(l)) return 'medium';
+  if (['passed', 'correct', 'verified'].includes(l)) return 'passed';
+  return 'info';
+}
+
 const _VERDICT_CSS_MAP = {
   'Correct': 'proved',
   'Minor Issues': 'partial',
   'Major Issues': 'partial',
   'Partial': 'partial',
   'Incorrect': 'unproven',
+  'NotChecked': 'unproven',
   'Unverifiable': 'refused',
   'Error': 'refused',
 };
@@ -3523,6 +3538,93 @@ function renderTheoremCardHtml(tr, index) {
     </div>`;
 }
 
+/** 渲染 PDF 章节审查卡片（kind=section）—— 极简审稿报告风格。 */
+function renderSectionCardHtml(sec, index) {
+  const isZh = AppState.lang === 'zh';
+  const pageLabel = sec.page_range ? ` · p.${sec.page_range}` : '';
+  const titleText = `§ ${escapeHtml(sec.section_title || `Section ${index}`)}${escapeHtml(pageLabel)}`;
+  const confPct = sec.confidence != null ? Math.round(sec.confidence * 100) : null;
+  const confHtml = confPct != null
+    ? `<span style="font-size:0.75em;font-weight:400;opacity:0.55;margin-left:8px">${isZh ? 'conf.' : 'conf.'} ${confPct}%</span>`
+    : '';
+
+  // main_claims — 只渲染 Partial 或 Incorrect
+  const filteredClaims = (sec.main_claims || []).filter(c =>
+    c.verdict === 'Partial' || c.verdict === 'Incorrect'
+  );
+  const claimsHtml = filteredClaims.map(c => {
+    const roleLabel = { theorem: isZh ? '定理' : 'Theorem', lemma: isZh ? '引理' : 'Lemma',
+      corollary: isZh ? '推论' : 'Corollary', proposition: isZh ? '命题' : 'Prop.',
+      informal_claim: isZh ? '断言' : 'Claim' }[c.role] || c.role || '';
+    const verdictLabel = `(${c.verdict})`;
+    const quoteHtml = c.source_quote
+      ? `<blockquote class="review-quote">${renderMathText(c.source_quote)}</blockquote>` : '';
+    return `
+      <div class="issue-item">
+        <div class="issue-content">
+          <div style="font-size:12px;line-height:1.55;overflow-wrap:anywhere">
+            ${roleLabel ? `<span class="issue-level info">${escapeHtml(roleLabel)}</span> ` : ''}<span style="opacity:0.6">${escapeHtml(verdictLabel)}</span>
+            &nbsp;${renderMathText(c.statement || '')}
+          </div>
+          ${quoteHtml}
+        </div>
+      </div>`;
+  }).join('');
+
+  // logic_issues — [SEVERITY] 描述 / 原文引用 / 改进建议
+  const logicIssHtml = (sec.logic_issues || []).map(iss => {
+    const sevCls = _issueLevelCls(iss.severity);
+    const quoteHtml = iss.source_quote
+      ? `<blockquote class="review-quote">${renderMathText(iss.source_quote)}</blockquote>` : '';
+    const fixHtml = iss.fix_suggestion
+      ? `<div style="margin-top:4px;font-size:12px;color:var(--text-secondary)">→ ${renderMathText(iss.fix_suggestion)}</div>` : '';
+    return `
+      <div class="issue-item">
+        <div class="issue-content">
+          <div><span class="issue-level ${sevCls}">[${escapeHtml((iss.severity || 'info').toUpperCase())}]</span>&nbsp;${renderMathText(iss.description || '')}</div>
+          ${quoteHtml}
+          ${fixHtml}
+        </div>
+      </div>`;
+  }).join('');
+
+  // citation_issues
+  const citeIssHtml = (sec.citation_issues || []).map(iss => {
+    const quoteHtml = iss.source_quote
+      ? `<blockquote class="review-quote">${renderMathText(iss.source_quote)}</blockquote>` : '';
+    const fixHtml = iss.fix_suggestion
+      ? `<div style="margin-top:4px;font-size:12px;color:var(--text-secondary)">→ ${renderMathText(iss.fix_suggestion)}</div>` : '';
+    return `
+      <div class="issue-item">
+        <div class="issue-content">
+          <div><span class="issue-level medium">[${isZh ? 'CITE' : 'CITE'}]</span>&nbsp;${renderMathText(iss.detail || '')}</div>
+          ${quoteHtml}
+          ${fixHtml}
+        </div>
+      </div>`;
+  }).join('');
+
+  // proofs_found — 折叠
+  const proofsInner = (sec.proofs_found || []).map(p => `
+    <div style="margin-top:6px;font-size:12px;line-height:1.55;color:var(--text-secondary)">
+      ${p.label ? `<strong>${escapeHtml(p.label)}</strong> — ` : ''}${renderMathText(p.summary || '')}
+    </div>`).join('');
+  const proofsHtml = proofsInner
+    ? `<details style="margin-top:10px;font-size:12px"><summary style="cursor:pointer;color:var(--text-muted)">${isZh ? '▾ 证明摘要' : '▾ Proof summaries'}</summary>${proofsInner}</details>`
+    : '';
+
+  const allIssues = logicIssHtml + citeIssHtml;
+  const body = claimsHtml + allIssues + proofsHtml;
+
+  return `
+    <div class="theorem-card" data-idx="${index}">
+      <div class="theorem-card-header">
+        <span class="theorem-card-name">${titleText}${confHtml}</span>
+      </div>
+      ${body ? `<div class="theorem-card-body">${body}</div>` : ''}
+    </div>`;
+}
+
 function renderReviewSummary(el, report) {
   if (!el || !report) return;
   const verdictCls = _VERDICT_CSS_MAP[report.overall_verdict] || 'unproven';
@@ -3543,12 +3645,21 @@ function renderReviewSummary(el, report) {
     : (isZh
         ? '审查完成，当前未发现明显问题。'
         : 'Review complete. No obvious issues were found.');
+  // 兼容 PDF 章节审查（sections_checked）和文本审查（theorems_checked）两种路径
+  const checkedCount = stats.sections_checked || stats.theorems_checked || 0;
+  const checkedLabel = stats.sections_checked != null
+    ? (isZh ? '个章节 ·' : 'sections ·')
+    : (isZh ? '个定理 ·' : 'theorems ·');
+  const pagesLabel = stats.pages_processed != null
+    ? `· ${isZh ? '共' : ''}${stats.pages_processed}${isZh ? ' 页' : ' pages'}`
+    : '';
   const statsHtml = `
     <div class="review-stats">
-      ${isZh ? '已检验' : 'Checked'} ${stats.theorems_checked || 0}
-      ${isZh ? '个定理 ·' : 'theorems ·'}
+      ${isZh ? '已检验' : 'Checked'} ${checkedCount}
+      ${checkedLabel}
       ${isZh ? '问题' : 'issues'} ${stats.issues_found || 0} ·
       ${isZh ? '引用核查' : 'citations'} ${stats.citations_checked || 0}
+      ${pagesLabel}
       ${stats.fallback === 'single_proof'
         ? (isZh ? '· 整段证明降级' : '· single-proof fallback')
         : ''}
@@ -3556,11 +3667,12 @@ function renderReviewSummary(el, report) {
   const globalIssuesHtml = topIssues.length
     ? `<div class="review-global-issues">${topIssues.map(iss => `
         <div class="issue-item">
-          <span class="issue-level ${(iss.issue_type || 'info').toLowerCase()}">${escapeHtml(iss.issue_type || 'INFO')}</span>
+          <span class="issue-level ${_issueLevelCls(iss.issue_type || iss.severity || 'info')}">${escapeHtml((iss.issue_type || iss.severity || 'INFO').toUpperCase())}</span>
           <div class="issue-content">
             ${iss.location ? renderReviewField(isZh ? '位置' : 'Location', iss.location, { inline: true }) : ''}
             ${renderReviewField(isZh ? '问题描述' : 'Issue', iss.description || iss.message || '')}
             ${iss.fix_suggestion ? renderReviewField(isZh ? '修复建议' : 'Suggestion', iss.fix_suggestion) : ''}
+            ${iss.source_quote ? renderReviewField(isZh ? '原文' : 'Quote', iss.source_quote) : ''}
           </div>
         </div>`).join('')}</div>`
     : `<div class="review-global-issues">
@@ -3596,9 +3708,9 @@ async function streamReview(proofText, { onStatus, onResult, onFinal, onError, l
         user_id: AppState.userId,
         lang: lang || _detectLang(proofText),
         check_logic: AppState.settings.checkLogic !== false,
-        check_citations: AppState.settings.checkCitations !== false,
-        check_symbols: AppState.settings.checkSymbols !== false,
-        extended_thinking: AppState.settings.extendedThinking === true,
+        check_citations: true,
+        check_symbols: true,
+        extended_thinking: false,
       }),
       signal: ctrl.signal,
     });
@@ -4032,6 +4144,7 @@ async function handleReviewing(focusText) {
 
   try {
     await streamReview(proofText, {
+      lang: AppState.lang,
       onStatus: (step, msg) => {
         const txt = contentEl.querySelector('.rv-status-text');
         if (txt) txt.textContent = msg;
@@ -4121,8 +4234,8 @@ async function _handleReviewingPdf(attach, focusText) {
     // 关键：显式走 agent 模式，否则后端默认 pipeline，无法体验 GROBID/对齐链路。
     fd.append('mode', 'agent');
     fd.append('check_logic', String(AppState.settings.checkLogic !== false));
-    fd.append('check_citations', String(AppState.settings.checkCitations !== false));
-    fd.append('check_symbols', String(AppState.settings.checkSymbols !== false));
+    fd.append('check_citations', 'true');
+    fd.append('check_symbols', 'true');
     if (AppState.model) fd.append('model', AppState.model);
 
     const resp = await fetch('/review_pdf_stream', {
@@ -4157,14 +4270,26 @@ async function _handleReviewingPdf(attach, focusText) {
             if (txt) txt.textContent = obj.status;
           } else if (obj.result) {
             const payload = obj.result;
-            if (payload && payload.kind === 'theorem' && payload.data) {
+            if (payload && payload.data) {
               partials.push(payload.data);
               const cardsEl = contentEl.querySelector('#rv-cards');
               if (cardsEl) {
-                cardsEl.insertAdjacentHTML('beforeend',
-                  renderTheoremCardHtml(payload.data, payload.index || partials.length));
-                try { renderKatexFallback(cardsEl.lastElementChild); } catch {}
-                smartScroll(contentEl);
+                if (payload.kind === 'section') {
+                  const sec = payload.data;
+                  const hasIssues = (sec.logic_issues && sec.logic_issues.length) ||
+                                    (sec.citation_issues && sec.citation_issues.length);
+                  if (!hasIssues) { /* 无问题章节，跳过渲染 */ } else {
+                    const html = renderSectionCardHtml(sec, payload.index || partials.length);
+                    cardsEl.insertAdjacentHTML('beforeend', html);
+                    try { renderKatexFallback(cardsEl.lastElementChild); } catch {}
+                    smartScroll(contentEl);
+                  }
+                } else {
+                  const html = renderTheoremCardHtml(payload.data, payload.index || partials.length);
+                  cardsEl.insertAdjacentHTML('beforeend', html);
+                  try { renderKatexFallback(cardsEl.lastElementChild); } catch {}
+                  smartScroll(contentEl);
+                }
               }
             }
           } else if (obj.final) {
@@ -4803,11 +4928,22 @@ async function checkHealth() {
   try {
     const data = await apiFetch('/health');
     setStatus('status-api', 'ok');
-    const latraceStatus = data.dependencies?.latrace?.status || '--';
-    setStatus('status-latrace', latraceStatus === 'ok' ? 'ok' : latraceStatus);
+    const llmStatus = data.dependencies?.llm?.status || '--';
+    setStatus('status-llm', llmStatus === 'ok' ? 'ok' : llmStatus);
     const tsStatus = data.dependencies?.theorem_search?.status;
     setStatus('status-ts', tsStatus?.startsWith('ok') ? 'ok' : tsStatus || '--');
     if (dot) { dot.textContent = '●'; dot.className = 'health-dot online'; }
+
+    // 回填 LLM 配置（api_key 不回显）
+    const llmInfo = data.llm || {};
+    if (llmInfo.base_url) {
+      const el = document.getElementById('input-llm-base-url');
+      if (el && !el.value) el.value = llmInfo.base_url;
+    }
+    if (llmInfo.model) {
+      const el = document.getElementById('input-llm-model');
+      if (el && !el.value) el.value = llmInfo.model;
+    }
   } catch {
     setStatus('status-api', 'offline');
     if (dot) { dot.textContent = '●'; dot.className = 'health-dot offline'; }
@@ -5028,17 +5164,69 @@ function bindEvents() {
     btn.addEventListener('click', () => applyLang(btn.dataset.lang));
   });
 
-  document.getElementById('toggle-stream')?.addEventListener('change', e => { AppState.settings.stream = e.target.checked; });
-  document.getElementById('toggle-memory')?.addEventListener('change', e => { AppState.settings.memoryEnabled = e.target.checked; });
-  document.getElementById('toggle-extended-thinking')?.addEventListener('change', e => { AppState.settings.extendedThinking = e.target.checked; });
-  document.getElementById('toggle-citation')?.addEventListener('change', e => { AppState.settings.citationCheck = e.target.checked; });
   document.getElementById('input-max-theorems')?.addEventListener('change', e => { AppState.settings.maxTheorems = parseInt(e.target.value) || 5; });
   // 审查选项
   document.getElementById('toggle-check-logic')?.addEventListener('change', e => { AppState.settings.checkLogic = e.target.checked; });
-  document.getElementById('toggle-check-citations')?.addEventListener('change', e => { AppState.settings.checkCitations = e.target.checked; });
-  document.getElementById('toggle-check-symbols')?.addEventListener('change', e => { AppState.settings.checkSymbols = e.target.checked; });
   document.querySelectorAll('input[name=level]').forEach(r => {
     r.addEventListener('change', e => { AppState.settings.level = e.target.value; });
+  });
+
+  // ── LLM preset 快速填入 ──────────────────────────────────────
+  const LLM_PRESETS = {
+    deepseek: {
+      base_url: 'https://api.deepseek.com/v1',
+      model: 'deepseek-prover-v2',
+    },
+    gemini: {
+      base_url: 'https://generativelanguage.googleapis.com/v1beta/openai/',
+      model: 'gemini-3.1-pro-preview',
+    },
+  };
+  document.querySelectorAll('.llm-preset-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const p = LLM_PRESETS[btn.dataset.preset];
+      if (!p) return;
+      const baseEl = document.getElementById('input-llm-base-url');
+      const modelEl = document.getElementById('input-llm-model');
+      if (baseEl) baseEl.value = p.base_url;
+      if (modelEl) modelEl.value = p.model;
+      document.getElementById('input-llm-api-key')?.focus();
+    });
+  });
+
+  // ── LLM 配置保存 ─────────────────────────────────────────────
+  document.getElementById('btn-save-llm')?.addEventListener('click', async () => {
+    const btn = document.getElementById('btn-save-llm');
+    const payload = {
+      base_url: document.getElementById('input-llm-base-url')?.value.trim() || '',
+      api_key:  document.getElementById('input-llm-api-key')?.value.trim() || '',
+      model:    document.getElementById('input-llm-model')?.value.trim() || '',
+    };
+    try {
+      if (btn) { btn.disabled = true; btn.textContent = '保存中…'; }
+      await apiPost('/config/llm', payload);
+      if (btn) { btn.textContent = '已保存 ✓'; }
+      setTimeout(() => { if (btn) { btn.disabled = false; btn.textContent = '保存配置'; } }, 2000);
+      checkHealth();
+    } catch (err) {
+      if (btn) { btn.disabled = false; btn.textContent = '保存失败'; }
+      console.error('LLM config save failed', err);
+    }
+  });
+
+  // ── Nanonets 配置保存 ─────────────────────────────────────────
+  document.getElementById('btn-save-nanonets')?.addEventListener('click', async () => {
+    const btn = document.getElementById('btn-save-nanonets');
+    const api_key = document.getElementById('input-nanonets-key')?.value.trim() || '';
+    try {
+      if (btn) { btn.disabled = true; btn.textContent = '保存中…'; }
+      await apiPost('/config/nanonets', { api_key });
+      if (btn) { btn.textContent = '已保存 ✓'; }
+      setTimeout(() => { if (btn) { btn.disabled = false; btn.textContent = '保存'; } }, 2000);
+    } catch (err) {
+      if (btn) { btn.disabled = false; btn.textContent = '保存失败'; }
+      console.error('Nanonets config save failed', err);
+    }
   });
   // 证明附件：DeepSeek 风格回形针入口（仅 reviewing 模式下显示）
   document.getElementById('attach-btn')?.addEventListener('click', () => {

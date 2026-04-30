@@ -458,14 +458,6 @@
   <div class="panel-section">
     <div class="panel-section-title" data-i18n="panel.params">参数</div>
 
-    <div class="param-row">
-      <label class="param-label" data-i18n="panel.stream">流式输出</label>
-      <label class="toggle-switch">
-        <input type="checkbox" id="toggle-stream" checked>
-        <span class="toggle-slider"></span>
-      </label>
-    </div>
-
     <div class="param-row" id="param-max-theorems" style="display:none">
       <label class="param-label" data-i18n="panel.maxTheorems">最大定理数</label>
       <input type="number" class="param-input" id="input-max-theorems"
@@ -476,30 +468,6 @@
   <div class="panel-section">
     <div class="panel-section-title" data-i18n="panel.features">功能</div>
 
-    <div class="param-row">
-      <label class="param-label" data-i18n="panel.memory">LATRACE 记忆</label>
-      <label class="toggle-switch">
-        <input type="checkbox" id="toggle-memory" checked>
-        <span class="toggle-slider"></span>
-      </label>
-    </div>
-
-    <div class="param-row">
-      <label class="param-label" data-i18n="panel.extendedThinking" title="Extended Thinking: 模型会展示完整推理过程">深度思考</label>
-      <label class="toggle-switch">
-        <input type="checkbox" id="toggle-extended-thinking">
-        <span class="toggle-slider"></span>
-      </label>
-    </div>
-
-    <div class="param-row">
-      <label class="param-label" data-i18n="panel.citation">引用核查</label>
-      <label class="toggle-switch">
-        <input type="checkbox" id="toggle-citation" checked>
-        <span class="toggle-slider"></span>
-      </label>
-    </div>
-
     <!-- 证明审查选项（仅 reviewing 模式显示） -->
     <div class="param-row" id="param-check-logic" style="display:none">
       <label class="param-label" data-i18n="panel.checkLogic">审查逻辑漏洞</label>
@@ -508,22 +476,51 @@
         <span class="toggle-slider"></span>
       </label>
     </div>
+  </div>
 
-    <div class="param-row" id="param-check-citations" style="display:none">
-      <label class="param-label" data-i18n="panel.checkCitations">核查定理引用</label>
-      <label class="toggle-switch">
-        <input type="checkbox" id="toggle-check-citations" checked>
-        <span class="toggle-slider"></span>
-      </label>
+  <!-- LLM API 配置 -->
+  <div class="panel-section">
+    <div class="panel-section-title" data-i18n="panel.llmConfig">LLM API 配置</div>
+    <div class="llm-presets">
+      <button class="llm-preset-btn" data-preset="deepseek">DeepSeek V4 Pro</button>
+      <a class="llm-preset-link" href="https://platform.deepseek.com/api_keys"
+         target="_blank" rel="noopener" data-i18n="panel.getKey">获取 Key ↗</a>
+      <span class="llm-preset-sep">·</span>
+      <button class="llm-preset-btn" data-preset="gemini">Gemini 3.1 Pro</button>
+      <a class="llm-preset-link" href="https://aistudio.google.com/app/apikey"
+         target="_blank" rel="noopener" data-i18n="panel.getKey">获取 Key ↗</a>
     </div>
+    <div class="param-row param-row--col">
+      <label class="param-label">Base URL</label>
+      <input id="input-llm-base-url" class="param-input param-input--full" type="text"
+        placeholder="https://api.deepseek.com/v1">
+    </div>
+    <div class="param-row param-row--col">
+      <label class="param-label">API Key</label>
+      <input id="input-llm-api-key" class="param-input param-input--full" type="password"
+        placeholder="sk-... / AIza...">
+    </div>
+    <div class="param-row param-row--col">
+      <label class="param-label">Model</label>
+      <input id="input-llm-model" class="param-input param-input--full" type="text"
+        placeholder="deepseek-prover-v2">
+    </div>
+    <button id="btn-save-llm" class="btn-primary btn-save-cfg" data-i18n="panel.saveLlm">保存配置</button>
+  </div>
 
-    <div class="param-row" id="param-check-symbols" style="display:none">
-      <label class="param-label" data-i18n="panel.checkSymbols">检查符号一致性</label>
-      <label class="toggle-switch">
-        <input type="checkbox" id="toggle-check-symbols" checked>
-        <span class="toggle-slider"></span>
-      </label>
+  <!-- Nanonets PDF 解析配置 -->
+  <div class="panel-section">
+    <div class="panel-section-title" data-i18n="panel.nanonetstConfig">Nanonets PDF 解析</div>
+    <div class="llm-presets">
+      <a class="llm-preset-link" href="https://app.nanonets.com/#/keys"
+         target="_blank" rel="noopener" data-i18n="panel.getNanoneetsKey">申请 API Key ↗</a>
     </div>
+    <div class="param-row param-row--col">
+      <label class="param-label">API Key</label>
+      <input id="input-nanonets-key" class="param-input param-input--full" type="password"
+        placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
+    </div>
+    <button id="btn-save-nanonets" class="btn-primary btn-save-cfg" data-i18n="panel.saveNanonets">保存</button>
   </div>
 
   <div class="panel-section panel-status">
@@ -533,8 +530,8 @@
       <span class="status-badge" id="status-api">--</span>
     </div>
     <div class="status-row">
-      <span class="status-label">LATRACE</span>
-      <span class="status-badge" id="status-latrace">--</span>
+      <span class="status-label">LLM</span>
+      <span class="status-badge" id="status-llm">--</span>
     </div>
     <div class="status-row">
       <span class="status-label">TheoremSearch</span>

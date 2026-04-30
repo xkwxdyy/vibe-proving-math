@@ -1586,24 +1586,27 @@ html[data-theme="dark"] .section-status-done { color: #4ade80; }
 }
 
 .theorem-card {
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  margin-bottom: 8px;
-  overflow: hidden;
-  transition: box-shadow var(--transition);
-  background: var(--bg-card);
+  border: none;
+  border-left: 2px solid var(--border);
+  border-radius: 0;
+  margin-bottom: 24px;
+  overflow: visible;
+  transition: none;
+  background: transparent;
+  padding-left: 14px;
 }
 
-.theorem-card:hover { box-shadow: var(--shadow-xs); }
+.theorem-card:hover { box-shadow: none; }
 
 .theorem-card-header {
   display: flex;
-  align-items: flex-start;
+  align-items: baseline;
   justify-content: space-between;
-  padding: 10px 16px;
-  background: var(--bg-panel);
-  font-size: 12px;
-  font-weight: 500;
+  padding: 0 0 8px 0;
+  background: transparent;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+  font-weight: 600;
   gap: 8px;
 }
 
@@ -1616,65 +1619,69 @@ html[data-theme="dark"] .section-status-done { color: #4ade80; }
 }
 
 .theorem-card-meta {
-  padding: 10px 16px 0;
+  padding: 8px 0 0;
 }
 
 .theorem-card-section {
-  padding: 10px 16px 0;
+  padding: 8px 0 0;
 }
 
 .theorem-card-body {
-  padding: 10px 16px;
+  padding: 8px 0;
   font-size: 12px;
   line-height: 1.6;
   color: var(--text-secondary);
-  border-top: 1px solid var(--border);
+  border-top: none;
 }
 
 .issue-item {
-  display: flex;
-  gap: 8px;
-  align-items: flex-start;
-  padding: 8px 0;
+  display: block;
+  padding: 10px 0 0;
 }
 
 .issue-item + .issue-item {
-  border-top: 1px dashed var(--border);
+  border-top: 1px dotted var(--border);
+  margin-top: 10px;
+  padding-top: 10px;
 }
 
 .issue-content {
-  flex: 1;
-  min-width: 0;
+  display: block;
 }
 
-.review-field {
-  display: grid;
-  grid-template-columns: 76px minmax(0, 1fr);
-  gap: 8px;
-  align-items: start;
-}
-
-.review-field + .review-field {
-  margin-top: 6px;
-}
+.review-field { display: block; margin-top: 5px; }
+.review-field + .review-field { margin-top: 6px; }
 
 .review-field-label {
+  display: block;
   color: var(--text-muted);
-  font-size: 11px;
-  line-height: 1.6;
+  font-size: 10px;
   font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  margin-bottom: 2px;
 }
 
 .review-field-value {
+  display: block;
   color: var(--text-primary);
   font-size: 12.5px;
   line-height: 1.7;
-  min-width: 0;
   overflow-wrap: anywhere;
 }
 
 .review-field-value.inline {
   color: var(--text-secondary);
+}
+
+.review-quote {
+  margin: 5px 0 0;
+  padding: 3px 10px;
+  border-left: 3px solid var(--border);
+  color: var(--text-muted);
+  font-size: 11.5px;
+  font-style: italic;
+  line-height: 1.6;
 }
 
 .issue-loc {
@@ -1695,17 +1702,22 @@ html[data-theme="dark"] .section-status-done { color: #4ade80; }
 
 .issue-level {
   font-size: 10px;
-  padding: 1px 6px;
-  border-radius: var(--radius-xs);
-  font-weight: 600;
-  flex-shrink: 0;
   font-family: var(--font-mono);
+  font-weight: 700;
+  background: none;
+  padding: 0;
+  border-radius: 0;
   text-transform: uppercase;
+  letter-spacing: 0.5px;
 }
 
-.issue-level.error, .issue-level.critical_error { background: var(--red-bg); color: var(--red); }
-.issue-level.warning, .issue-level.gap          { background: var(--yellow-bg); color: var(--yellow); }
-.issue-level.info                                { background: var(--accent-light); color: var(--accent); }
+.issue-level.error, .issue-level.critical_error,
+.issue-level.critical, .issue-level.high        { color: var(--red); }
+.issue-level.warning, .issue-level.gap,
+.issue-level.medium                             { color: var(--yellow, #a07800); }
+.issue-level.info, .issue-level.low             { color: var(--text-muted); }
+.issue-level.passed, .issue-level.correct,
+.issue-level.verified                           { color: var(--green, #1a7f37); }
 
 /* ════════════════════════════════════════════════════════════════
    定理检索结果
@@ -1959,7 +1971,7 @@ html[data-theme="dark"] .section-status-done { color: #4ade80; }
 #pdf-viewer-modal {
   position: fixed;
   inset: 0;
-  z-index: 9000;
+  z-index: 9200;
   background: rgba(0, 0, 0, .72);
   display: flex;
   flex-direction: column;
@@ -4742,4 +4754,76 @@ body.is-streaming .mode-tabs { pointer-events: none; opacity: 0.7; }
 .fbadge-err     { background: color-mix(in srgb, var(--red) 12%, var(--bg-card)); color: var(--red); border: 1px solid color-mix(in srgb, var(--red) 25%, transparent); }
 .fbadge-skip    { background: var(--bg-secondary); color: var(--text-muted); border: 1px solid var(--border); }
 [data-theme="dark"] .fbadge-warn { color: #fbbf24; }
+
+/* ── LLM / Nanonets 配置区 ───────────────────────────────────── */
+
+/* preset 快速填入行 */
+.llm-presets {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+.llm-preset-sep {
+  color: var(--text-muted);
+  font-size: 12px;
+  user-select: none;
+}
+
+/* preset 按钮：ghost 风格，与 panel-section-title 同色系 */
+.llm-preset-btn {
+  font-size: 12px;
+  font-family: inherit;
+  padding: 2px 9px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background var(--transition), color var(--transition), border-color var(--transition);
+}
+.llm-preset-btn:hover {
+  background: var(--accent-muted);
+  color: var(--text-primary);
+  border-color: var(--border-focus);
+}
+
+/* 申请 key 链接：低调脚注式 */
+.llm-preset-link {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-decoration: none;
+  letter-spacing: 0.2px;
+  transition: color var(--transition);
+}
+.llm-preset-link:hover {
+  color: var(--text-primary);
+  text-decoration: underline;
+}
+
+/* 纵向排列的 param-row（label 在上，input 在下） */
+.param-row--col {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+.param-row--col .param-label {
+  flex: none;
+}
+
+/* 全宽输入框 */
+.param-input--full {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* 配置区保存按钮：复用 btn-primary，全宽居中 */
+.btn-save-cfg {
+  margin-top: 8px;
+  width: 100%;
+  justify-content: center;
+  font-size: 13px;
+  padding: 7px 12px;
+}
 

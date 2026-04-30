@@ -32,11 +32,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from core.config import llm_cfg, latrace_cfg, load_config
+from core.config import llm_cfg, load_config
 from core.logging_setup import setup_logging
 from core.theorem_search import search_theorems as _ts_search, get_cache_stats as _ts_cache_stats
-from core.memory import MemoryClient
 from core.knowledge_base import extract_text_file
+
+# 运行时可热更新的配置覆盖（由 POST /config/llm 和 /config/nanonets 写入）
+_runtime_config_overrides: dict = {}
 
 # 初始化日志（仅调用一次）
 setup_logging()
@@ -97,6 +99,11 @@ class SolveRequest(BaseModel):
     stream: bool = True
     lang: Optional[str] = None
     text_attachments: Optional[list[str]] = None
+
+
+class SolveLatexRequest(BaseModel):
+    blueprint: str
+    model: Optional[str] = None
 
 
 class ReviewRequest(BaseModel):
@@ -378,13 +385,22 @@ async def learn(req: LearnRequest):
 
     if req.stream:
         async def _gen():
-            # 记忆：检索历史（若 LATRACE 可用）
-            mem_client = MemoryClient(user_id=req.user_id or "anonymous")
-            memories = await mem_client.retrieve(req.project_id or "default", req.statement)
-            kb_text = None
-            if memories:
-                kb_text = mem_client.format_memories_for_prompt(memories)
-                yield f"<!-- memory_retrieved: {len(memories)} items -->"
+            # 记忆：检索历史（若 LATRACE 可用，静默降级）
+            try:
+                from core.memory import MemoryClient
+                mem_client = MemoryClient(user_id=req.user_id or "anonymous")
+                memories = await asyncio.wait_for(
+                    mem_client.retrieve(req.project_id or "default", req.statement),
+                    timeout=5,
+                )
+                kb_text = None
+                if memories:
+                    kb_text = mem_client.format_memories_for_prompt(memories)
+                    yield f"<!-- memory_retrieved: {len(memories)} items -->"
+            except Exception:
+                logger.debug("learn: memory retrieve skipped (LATRACE unavailable)")
+                mem_client = None
+                kb_text = None
             async for chunk in stream_learning_pipeline(
                 req.statement,
                 level=req.level,
@@ -394,13 +410,17 @@ async def learn(req: LearnRequest):
             ):
                 yield chunk
 
-            # 记忆：异步写入
-            asyncio.create_task(
-                mem_client.ingest(req.project_id or "default", [
-                    {"role": "user", "text": f"学习模式: {req.statement}"},
-                    {"role": "assistant", "text": f"[学习模式输出已完成]"},
-                ])
-            )
+            # 记忆：异步写入（静默降级）
+            if mem_client is not None:
+                try:
+                    asyncio.create_task(
+                        mem_client.ingest(req.project_id or "default", [
+                            {"role": "user", "text": f"学习模式: {req.statement}"},
+                            {"role": "assistant", "text": f"[学习模式输出已完成]"},
+                        ])
+                    )
+                except Exception:
+                    logger.debug("learn: memory ingest skipped")
 
         return StreamingResponse(
             _sse_generator(_gen()),
@@ -512,6 +532,25 @@ async def solve(req: SolveRequest):
         return result.to_dict()
 
 
+@app.post("/solve_latex")
+async def solve_latex(req: SolveLatexRequest):
+    """将证明蓝图转换为可编译的 LaTeX 代码（流式 SSE）。"""
+    if not req.blueprint or not req.blueprint.strip():
+        raise HTTPException(status_code=422, detail="blueprint 不能为空")
+
+    from modes.research.solver import generate_proof_latex
+
+    async def _gen():
+        async for chunk in generate_proof_latex(req.blueprint, model=req.model):
+            yield chunk
+
+    return StreamingResponse(
+        _sse_generator(_gen()),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 # ── 端点：/review ──────────────────────────────────────────────────────────────
 
 @app.post("/review")
@@ -554,6 +593,7 @@ async def review(req: ReviewRequest):
                 check_logic=req.check_logic,
                 check_citations=req.check_citations,
                 check_symbols=req.check_symbols,
+                lang=req.lang or "zh",
             )
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
@@ -616,6 +656,7 @@ async def review_stream(req: ReviewRequest):
             check_logic=req.check_logic,
             check_citations=req.check_citations,
             check_symbols=req.check_symbols,
+            lang=req.lang or "zh",
         )
 
     return await _run_review_stream(
@@ -834,7 +875,7 @@ async def list_projects(user_id: str = Query("anonymous")):
 
 @app.get("/health")
 async def health():
-    """服务健康检查，包含 LATRACE、TheoremSearch、Kimina 状态和缓存统计。"""
+    """服务健康检查，包含 LLM、TheoremSearch、Kimina、Aristotle 状态和缓存统计。"""
     import datetime as _dt
     from core.theorem_search import _get_http_client
     from core.config import ts_cfg
@@ -842,22 +883,29 @@ async def health():
     from modes.formalization.verifier import check_kimina_health
     from core.aristotle_client import check_aristotle_health
 
-    cfg = llm_cfg()
+    cfg = _effective_llm_cfg()
 
-    # ── 并发检查 LATRACE 与 TheoremSearch ────────────────────────────
-    async def _check_latrace() -> tuple[str, dict]:
+    # ── LLM 连通检查 ──────────────────────────────────────────────
+    async def _check_llm() -> tuple[str, str, str]:
+        """向 LLM base_url/models 发 GET 探测，返回 (status, base_url, model)。"""
+        base_url = cfg.get("base_url", "")
+        model = cfg.get("model", "")
+        if not base_url:
+            return "not_configured", base_url, model
         try:
-            mem = MemoryClient()
-            h = await asyncio.wait_for(mem.health(), timeout=6)
-            status = h.get("status", "unknown")
-            detail = {k: v for k, v in h.get("dependencies", {}).items()}
-            return status, detail
+            probe_url = base_url.rstrip("/") + "/models"
+            r = await asyncio.wait_for(
+                _get_http_client().get(probe_url, timeout=8),
+                timeout=9,
+            )
+            status = "ok" if r.status_code < 500 else f"error:{r.status_code}"
         except asyncio.TimeoutError:
-            logger.debug("health: LATRACE check timed out")
-            return "timeout", {}
+            logger.debug("health: LLM check timed out")
+            status = "timeout"
         except Exception as exc:
-            logger.debug("health: LATRACE check failed: %s", exc)
-            return "unavailable", {}
+            logger.debug("health: LLM check failed: %s", exc)
+            status = "unreachable"
+        return status, base_url, model
 
     async def _check_ts() -> str:
         # 如果缓存里已有条目，说明近期调用成功过 → 直接报 ok
@@ -879,13 +927,13 @@ async def health():
             return "unreachable"
 
     (
-        (latrace_status, latrace_detail),
+        (llm_status, llm_base_url, llm_model),
         ts_status,
         kimina_status,
         paper_review_agent,
         aristotle_status,
     ) = await asyncio.gather(
-        _check_latrace(),
+        _check_llm(),
         _check_ts(),
         check_kimina_health(),
         check_agent_tool_health(),
@@ -894,29 +942,22 @@ async def health():
 
     ts_cache = _ts_cache_stats()
 
-    # overall 只由 LATRACE 决定（TheoremSearch 慢/超时不影响系统可用性）
-    # "unavailable" / "timeout" = 完全连不上 = degraded
-    # "fail" / "http_5xx" 等 = 可达但内部失败 = degraded（记忆功能受损）
-    # "ok" / "pass" / "healthy" = 正常
-    if latrace_status in ("unavailable", "timeout"):
-        overall = "degraded"
-    elif latrace_status not in ("ok", "pass", "healthy"):
-        overall = "degraded"
-    else:
-        overall = "ok"
+    # overall 由 LLM 连通性决定（TheoremSearch 超时不影响系统可用性）
+    overall = "ok" if llm_status == "ok" else "degraded"
 
     result: dict = {
         "status": overall,
         "version": "0.1.0",
         "timestamp": _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "llm": {
-            "base_url": cfg["base_url"],
-            "model": cfg["model"],
+            "base_url": llm_base_url,
+            "model": llm_model,
         },
         "dependencies": {
-            "latrace": {
-                "status": latrace_status,
-                **({"dependencies": latrace_detail} if latrace_detail else {}),
+            "llm": {
+                "status": llm_status,
+                "base_url": llm_base_url,
+                "model": llm_model,
             },
             "theorem_search": {
                 "status": ts_status,
@@ -928,6 +969,55 @@ async def health():
         },
     }
     return result
+
+
+# ── 端点：/config/llm  /config/nanonets ───────────────────────────────────────
+
+def _effective_llm_cfg() -> dict:
+    """返回合并了运行时覆盖的 LLM 配置。"""
+    base = dict(llm_cfg())
+    base.update(_runtime_config_overrides.get("llm", {}))
+    return base
+
+
+def _effective_nanonets_cfg() -> dict:
+    """返回合并了运行时覆盖的 Nanonets 配置。"""
+    from core.config import nanonets_cfg
+    base = dict(nanonets_cfg())
+    base.update(_runtime_config_overrides.get("nanonets", {}))
+    return base
+
+
+@app.post("/config/llm")
+async def update_llm_config(body: dict):
+    """热更新 LLM 配置（base_url / api_key / model），无需重启服务。"""
+    patch: dict = {}
+    for key in ("base_url", "api_key", "model"):
+        if key in body and isinstance(body[key], str) and body[key].strip():
+            patch[key] = body[key].strip()
+    if not patch:
+        raise HTTPException(status_code=422, detail="至少提供 base_url / api_key / model 之一")
+    _runtime_config_overrides.setdefault("llm", {}).update(patch)
+    # 让 core.llm 下次重新构建客户端
+    try:
+        import core.llm as _llm_mod
+        if hasattr(_llm_mod, "_client"):
+            _llm_mod._client = None  # type: ignore[attr-defined]
+    except Exception:
+        pass
+    logger.info("LLM config updated: %s", {k: ("***" if k == "api_key" else v) for k, v in patch.items()})
+    return {"ok": True, "updated": list(patch.keys())}
+
+
+@app.post("/config/nanonets")
+async def update_nanonets_config(body: dict):
+    """热更新 Nanonets API Key，无需重启服务。"""
+    api_key = (body.get("api_key") or "").strip()
+    if not api_key:
+        raise HTTPException(status_code=422, detail="api_key 不能为空")
+    _runtime_config_overrides.setdefault("nanonets", {})["api_key"] = api_key
+    logger.info("Nanonets API key updated")
+    return {"ok": True}
 
 
 # ── 错误处理 ──────────────────────────────────────────────────────────────────
