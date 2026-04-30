@@ -40,7 +40,9 @@ app_server_*.log
 app/_iter_*.log
 app/_inspect*.py
 app/_check*.py
+app/_test*.py
 app/_test*.js
+app/_pdf_review_result.json
 
 # ──────── 评估产物与本地实验 ────────
 app/eval_screenshots/

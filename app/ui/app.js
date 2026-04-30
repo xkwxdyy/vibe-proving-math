@@ -32,7 +32,7 @@ const I18N = {
       learning:       { title: '学习模式', desc: '为数学命题生成分步教学讲解，面向学生' },
       solving:        { title: '问题求解', desc: '自动证明数学命题，生成完整分步证明，置信度评估与主动拒绝' },
       reviewing:      { title: '证明审查', desc: '上传数学论文 PDF，AI 将逐步审查逻辑漏洞、引用的定理与符号一致性' },
-      searching:      { title: '定理检索', desc: '直接搜索 1kw+ 定理库，获取定理的真实来源' },
+      searching:      { title: '定理检索', desc: '搜索 900 万+ 自然语言数学定理，获取定理的真实来源' },
       projects:       { title: '项目管理', desc: '保存、组织并随时回到你的研究项目' },
       history:        { title: '历史会话', desc: '浏览近期对话与提问记录，一键继续' },
       formalization:  { title: '形式化证明', desc: '将数学命题转化为 Lean 4 代码：搜索 mathlib4 · 自动形式化 · 本地编译验证' },
@@ -65,6 +65,13 @@ const I18N = {
       shortcuts: '快捷键',
       skSend: '发送', skNewline: '换行', skStop: '停止生成',
       skFocus: '聚焦输入框', skMode: '切换模式',
+      llmConfig: 'LLM API 配置', getKey: '获取 Key ↗',
+      saveLlm: '保存配置',
+      nanonetsCfg: 'Nanonets PDF 解析', getNanoneetsKey: '申请 API Key ↗',
+      saveNanonets: '保存',
+      saving: '保存中…', saved: '已保存 ✓', saveFailed: '保存失败',
+      saveFailedHint: '配置保存失败，请检查网络',
+      baseUrl: 'Base URL', apiKey: 'API Key', model: 'Model',
     },
     modal: { projects: {
       title: '项目管理', new: '新建项目',
@@ -147,7 +154,7 @@ const I18N = {
         { icon: 'ℓ', title: '学习模式', body: '输入任意数学命题或定理，AI 自动生成：<br>• <strong>数学背景</strong>：历史脉络与意义<br>• <strong>完整证明</strong>：分步标注，每步说明 why<br>• <strong>具体例子</strong>：包含边界情形分析<br>• <strong>前置知识</strong>：理解该证明所需的概念清单' },
         { icon: '∂', title: '问题求解', body: '输入待证命题，AI 自动：<br>• 尝试直接证明（多轮修订循环）<br>• 反例测试（检验命题是否成立）<br>• 子目标分解（复杂命题拆分）<br>• 引用核查（TheoremSearch 验证）<br>• 置信度评估，低置信度时主动拒绝' },
         { icon: '¶', title: '证明审查', body: '粘贴或上传证明文本（.tex/.txt/.md），AI：<br>• 逐步核验每个推理步骤<br>• 标注 passed / gap / critical_error<br>• 检查引用定理是否真实存在<br>• 给出整体判定：Correct / Partial / Incorrect<br>支持 LaTeX 环境（\\begin{theorem}…）' },
-        { icon: '∇', title: '定理检索', body: '直接搜索 1000 万+ 定理库：<br>• 自然语言查询（"Cauchy sequence convergence"）<br>• 返回定理名、slogan、来源论文、arXiv 链接<br>• 相似度排序，高质量结果排前<br>学习/求解模式自动调用此接口补充上下文' },
+        { icon: '∇', title: '定理检索', body: '直接搜索 900 万+ 自然语言数学定理（来自 arXiv、Stacks Project 等）：<br>• 自然语言查询（"Cauchy sequence convergence"）<br>• 返回定理名、slogan、来源论文、arXiv 链接<br>• 相似度排序，高质量结果排前<br>学习/求解模式自动调用此接口补充上下文' },
       ],
       kbTitle: '§ Project 知识库',
       kbDesc: 'Project 是长期研究的组织单位，每个 Project 拥有独立的：',
@@ -184,7 +191,7 @@ const I18N = {
       learning:       { title: 'Learning Mode',  desc: 'Step-by-step pedagogical explanation of math proofs' },
       solving:        { title: 'Problem Solving', desc: 'Generates complete step-by-step proofs with confidence scoring and active refusal' },
       reviewing:      { title: 'Proof Review',    desc: 'Upload a math paper PDF; AI progressively reviews logic gaps, theorem citations, and symbol consistency' },
-      searching:      { title: 'Theorem Search',  desc: 'Search 10M+ theorems and get real sources' },
+      searching:      { title: 'Theorem Search',  desc: 'Search 9M+ math theorems in natural language and get real sources' },
       projects:       { title: 'Projects',        desc: 'Save, organize and resume your research projects' },
       history:        { title: 'History',         desc: 'Browse recent sessions and resume any conversation' },
       formalization:  { title: 'Formalization', desc: 'Lean 4 via Harmonic Aristotle (mathlib search · cloud prove); pipeline mode for local LLM fallback' },
@@ -217,6 +224,13 @@ const I18N = {
       shortcuts: 'Shortcuts',
       skSend: 'Send', skNewline: 'Newline', skStop: 'Stop',
       skFocus: 'Focus input', skMode: 'Switch mode',
+      llmConfig: 'LLM API Config', getKey: 'Get Key ↗',
+      saveLlm: 'Save Config',
+      nanonetsCfg: 'Nanonets PDF Parsing', getNanoneetsKey: 'Apply API Key ↗',
+      saveNanonets: 'Save',
+      saving: 'Saving…', saved: 'Saved ✓', saveFailed: 'Save failed',
+      saveFailedHint: 'Config save failed, please check your network',
+      baseUrl: 'Base URL', apiKey: 'API Key', model: 'Model',
     },
     modal: { projects: {
       title: 'Projects', new: 'New project',
@@ -299,7 +313,7 @@ const I18N = {
         { icon: 'ℓ', title: 'Learning Mode', body: 'Enter any mathematical statement or theorem and AI generates:<br>• <strong>Background</strong>: historical context and significance<br>• <strong>Complete Proof</strong>: step-by-step with why at each step<br>• <strong>Examples</strong>: including boundary case analysis<br>• <strong>Further Reading</strong>: related theorems, open problems, exercises<br>• <strong>Prerequisites</strong>: concepts needed to understand the proof' },
         { icon: '∂', title: 'Problem Solving', body: 'Submit a statement to prove and AI automatically:<br>• Attempts direct proof (multi-round revision loop)<br>• Tests for counterexamples<br>• Decomposes into sub-goals<br>• Verifies citations via TheoremSearch<br>• Assigns confidence; actively refuses low-confidence results' },
         { icon: '¶', title: 'Proof Review', body: 'Paste or upload proof text (.tex/.txt/.md) and AI:<br>• Verifies each reasoning step<br>• Labels steps: passed / gap / critical_error<br>• Checks cited theorems for existence<br>• Issues overall verdict: Correct / Partial / Incorrect<br>Supports LaTeX environments (\\begin{theorem}…)' },
-        { icon: '∇', title: 'Theorem Search', body: 'Search 10M+ theorem database directly:<br>• Natural language queries ("Cauchy sequence convergence")<br>• Returns theorem name, slogan, source paper, arXiv link<br>• Ranked by similarity, top results first<br>Learning/Solving modes call this automatically for context' },
+        { icon: '∇', title: 'Theorem Search', body: 'Search 9M+ math theorems in natural language (arXiv, Stacks Project & more):<br>• Natural language queries ("Cauchy sequence convergence")<br>• Returns theorem name, slogan, source paper, arXiv link<br>• Ranked by similarity, top results first<br>Learning/Solving modes call this automatically for context' },
       ],
       kbTitle: '§ Project Knowledge Base',
       kbDesc: 'A Project is a long-term research unit. Each project has its own:',
@@ -4946,6 +4960,8 @@ async function checkHealth() {
     }
   } catch {
     setStatus('status-api', 'offline');
+    setStatus('status-llm', '--');
+    setStatus('status-ts', '--');
     if (dot) { dot.textContent = '●'; dot.className = 'health-dot offline'; }
   }
 }
@@ -5100,10 +5116,6 @@ function bindEvents() {
     }
   });
   document.getElementById('btn-theme')?.addEventListener('click', toggleTheme);
-  // plan H：设置面板内的语言切换
-  document.getElementById('btn-lang-panel')?.addEventListener('click', () => {
-    applyLang(AppState.lang === 'zh' ? 'en' : 'zh');
-  });
 
   // plan F.3 (T51)：分段切换器（中文 / EN）
   const langSeg = document.getElementById('lang-seg');
@@ -5203,13 +5215,14 @@ function bindEvents() {
       model:    document.getElementById('input-llm-model')?.value.trim() || '',
     };
     try {
-      if (btn) { btn.disabled = true; btn.textContent = '保存中…'; }
+      if (btn) { btn.disabled = true; btn.textContent = t('panel.saving'); }
       await apiPost('/config/llm', payload);
-      if (btn) { btn.textContent = '已保存 ✓'; }
-      setTimeout(() => { if (btn) { btn.disabled = false; btn.textContent = '保存配置'; } }, 2000);
+      if (btn) { btn.textContent = t('panel.saved'); }
+      setTimeout(() => { if (btn) { btn.disabled = false; btn.textContent = t('panel.saveLlm'); } }, 2000);
       checkHealth();
     } catch (err) {
-      if (btn) { btn.disabled = false; btn.textContent = '保存失败'; }
+      if (btn) { btn.disabled = false; btn.textContent = t('panel.saveFailed'); }
+      showToast('error', t('panel.saveFailedHint'));
       console.error('LLM config save failed', err);
     }
   });
@@ -5219,12 +5232,13 @@ function bindEvents() {
     const btn = document.getElementById('btn-save-nanonets');
     const api_key = document.getElementById('input-nanonets-key')?.value.trim() || '';
     try {
-      if (btn) { btn.disabled = true; btn.textContent = '保存中…'; }
+      if (btn) { btn.disabled = true; btn.textContent = t('panel.saving'); }
       await apiPost('/config/nanonets', { api_key });
-      if (btn) { btn.textContent = '已保存 ✓'; }
-      setTimeout(() => { if (btn) { btn.disabled = false; btn.textContent = '保存'; } }, 2000);
+      if (btn) { btn.textContent = t('panel.saved'); }
+      setTimeout(() => { if (btn) { btn.disabled = false; btn.textContent = t('panel.saveNanonets'); } }, 2000);
     } catch (err) {
-      if (btn) { btn.disabled = false; btn.textContent = '保存失败'; }
+      if (btn) { btn.disabled = false; btn.textContent = t('panel.saveFailed'); }
+      showToast('error', t('panel.saveFailedHint'));
       console.error('Nanonets config save failed', err);
     }
   });

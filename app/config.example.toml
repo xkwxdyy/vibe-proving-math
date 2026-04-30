@@ -6,7 +6,18 @@
 # 敏感字段请勿提交到 git（仓库已忽略 app/config.toml）。
 
 [llm]
-# OpenAI 兼容 Chat Completions 端点
+# OpenAI 兼容 Chat Completions 端点，支持任何兼容接口。
+#
+# 推荐 A（高性价比）：DeepSeek V4 Pro
+#   base_url = "https://api.deepseek.com/v1"
+#   model    = "deepseek-prover-v2"
+#   申请 Key：https://platform.deepseek.com/api_keys
+#
+# 推荐 B（强推理）：Gemini 3.1 Pro Preview
+#   base_url = "https://generativelanguage.googleapis.com/v1beta/openai"
+#   model    = "gemini-3.1-pro-preview"
+#   申请 Key：https://aistudio.google.com/app/apikey
+#
 base_url = "https://api.openai.com/v1"
 api_key  = ""
 model    = "gpt-4o"
@@ -17,6 +28,7 @@ base_url = "https://api.theoremsearch.com"
 timeout  = 60
 
 [latrace]
+# 可选：LATRACE 记忆服务，不配置不影响核心功能。
 base_url    = "http://localhost:8000"
 tenant_id   = "vibe-proving"
 timeout     = 10

@@ -253,7 +253,7 @@ PDF / 图片 / LaTeX 文件上传审查（multipart/form-data），SSE 流式。
 
 #### `GET /search`
 
-TheoremSearch 透传，搜索 Lean 4 / Mathlib 定理库（1 000 万+ 定理）。
+TheoremSearch 透传，搜索 900 万+ 自然语言数学定理（arXiv、Stacks Project 等）。
 
 **查询参数：**
 
