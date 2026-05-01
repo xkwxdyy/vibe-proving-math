@@ -3193,7 +3193,14 @@ function _finalizeSolve(contentEl, rawBuffer, metadata, statement, stopped) {
   // 渲染证明正文
   const bodyEl = contentEl.querySelector('.solve-body');
   if (bodyEl && rawBuffer) {
-    bodyEl.innerHTML = renderMarkdown(rawBuffer);
+    // 提取 metadata（置信度、判定、引用）并渲染 verdict bar
+    extractSolveMetadata(rawBuffer, metadata);
+    if (metadata.verdict && metadata.verdict !== 'unproven') {
+      const barHtml = buildVerdictBar(metadata);
+      bodyEl.innerHTML = barHtml + renderMarkdown(rawBuffer);
+    } else {
+      bodyEl.innerHTML = renderMarkdown(rawBuffer);
+    }
     renderKatexFallback(bodyEl);
   }
 
@@ -4495,6 +4502,16 @@ async function sendMessage() {
     return;
   }
 
+  // 前端输入长度预检（与后端 10000 字符上限一致），避免无谓 422 往返
+  const _MODE_CHAR_LIMIT = 10000;
+  if (text && text.length > _MODE_CHAR_LIMIT && AppState.mode !== 'reviewing') {
+    const isZh = AppState.lang === 'zh';
+    showToast('warning', isZh
+      ? `输入内容超过 ${_MODE_CHAR_LIMIT.toLocaleString()} 字符限制，请精简后再发送`
+      : `Input exceeds ${_MODE_CHAR_LIMIT.toLocaleString()} character limit`);
+    return;
+  }
+
   if (AppState.mode === 'reviewing') {
     // 预检：必须有附件或正文，不读 textarea 而是用刚才捕获的 text
     const payload = Attachments.buildPayload(text || '');
@@ -4927,7 +4944,7 @@ function _renderSessionList(sessions) {
     el.innerHTML = `<div class="proj-empty-hint">${t('modal.projects.noSessionsHint')}</div>`;
     return;
   }
-  const modeMap = { learning: 'L', solving: 'S', reviewing: 'R', searching: 'T' };
+  const modeMap = { learning: 'L', solving: 'S', reviewing: 'R', searching: 'T', formalization: 'F' };
   el.innerHTML = sessions.slice(0, 10).map(s => {
     const d = new Date(s.ts || 0);
     const dateStr = d.toLocaleDateString(AppState.lang === 'zh' ? 'zh-CN' : 'en-US', { month: 'short', day: 'numeric' });
