@@ -588,6 +588,8 @@ function showToast(type, message, duration = 3500) {
   const container = document.getElementById('toast-container');
   if (!container) return;
 
+  // 统一类型别名：warn → warning，避免 CSS 类名不一致
+  if (type === 'warn') type = 'warning';
   const icons = { error: '✕', success: '✓', info: 'ℹ', warning: '!' };
   const toast = document.createElement('div');
   toast.className = `toast toast-${type}`;
@@ -1453,7 +1455,7 @@ function refreshHistorySidebar() {
     const g = _historyGroup(s.ts || s.id);
     (groups[g] = groups[g] || []).push(s);
   }
-  const modeMap = { learning: 'L', solving: 'S', reviewing: 'R', searching: 'T' };
+  const modeMap = { learning: 'L', solving: 'S', reviewing: 'R', searching: 'T', formalization: 'F' };
   const groupOrder = AppState.lang === 'zh'
     ? ['今天', '7 天内', '本月', '更早']
     : ['Today', 'Past 7 days', 'This month', 'Older'];
@@ -2490,7 +2492,10 @@ window.thumbMsg = function(btn, dir) {
   btn.classList.toggle('active');
   if (btn.classList.contains('active')) {
     btn.textContent = dir === 'up' ? '✓' : '✓';
-    showToast('success', dir === 'up' ? '感谢反馈！' : '已记录', 1800);
+    const isZh = AppState.lang === 'zh';
+    showToast('success', dir === 'up'
+      ? (isZh ? '感谢反馈！' : 'Thank you!')
+      : (isZh ? '已记录' : 'Noted'), 1800);
   } else {
     btn.textContent = dir === 'up' ? '↑' : '↓';
   }
@@ -4371,8 +4376,18 @@ async function handleSearching(query) {
   const contentEl = addMessage('ai', null);
   if (contentEl) contentEl.innerHTML = makeThinkingHtml(AppState.lang === 'zh' ? '正在检索定理库…' : 'Searching theorems…');
 
+  AppState.set('isStreaming', true);
+  const ctrl = new AbortController();
+  AppState._abortController = ctrl;
+
   try {
-    const data = await apiFetch('/search', { q: query, top_k: 10 });
+    const resp = await fetch(`${API_BASE}/search?${new URLSearchParams({ q: query, top_k: 10 })}`, { signal: ctrl.signal });
+    if (!resp.ok) {
+      let detail = `HTTP ${resp.status}`;
+      try { const e = await resp.json(); detail = e.detail || e.error?.message || detail; } catch {}
+      throw new Error(detail);
+    }
+    const data = await resp.json();
     renderSearchResults(contentEl, data);
     const bubbleEl = contentEl?.closest('.msg-bubble');
     if (bubbleEl) addMessageActions(bubbleEl, query);
@@ -4383,8 +4398,11 @@ async function handleSearching(query) {
     }
     saveCurrentSession(query);
   } catch (err) {
+    if (err && err.name === 'AbortError') return;
     addErrorInline(contentEl, t('ui.err.searching', { e: err.message || err }));
     showToast('error', err.message || String(err));
+  } finally {
+    AppState.set('isStreaming', false);
   }
 }
 

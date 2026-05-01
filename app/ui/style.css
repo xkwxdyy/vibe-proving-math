@@ -2995,9 +2995,6 @@ body.is-streaming .send-btn {
   border-color: var(--accent-muted);
 }
 
-  border-color: var(--accent-muted);
-}
-
 /* ── 顶栏文档按钮 ─────────────────────────────────────────── */
 .topbar-docs-btn {
   font-size: 13px;
@@ -4275,6 +4272,7 @@ body.is-streaming [data-tooltip]:hover::after { opacity: 0 !important; content: 
 .hist-mode-solving   { background: rgba(236,72,153,0.18); color: #ec4899; }
 .hist-mode-reviewing { background: rgba(245,158,11,0.18); color: #f59e0b; }
 .hist-mode-searching { background: rgba(20,184,166,0.18); color: #14b8a6; }
+.hist-mode-formalization { background: rgba(99,102,241,0.12); color: #6366f1; }
 .hist-title {
   flex: 1;
   white-space: nowrap;
