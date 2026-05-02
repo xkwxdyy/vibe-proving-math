@@ -1,7 +1,7 @@
 ![vibe_proving](assets/banner.svg)
 
 <p align="center">
-AI-powered mathematical research assistant for students and researchers
+An AI platform for math researcher
 </p>
 
 <p align="center">
@@ -17,7 +17,7 @@ AI-powered mathematical research assistant for students and researchers
 
 ## Overview
 
-**vibe_proving** is an integrated AI platform for mathematical research enthusiasts. It combines language models with theorem retrieval to provide interactive workflows for learning, problem-solving, proof review, and knowledge discovery.
+**vibe_proving** is an AI platform for math researchers. It combines language models with theorem retrieval to provide interactive workflows for learning, problem-solving, proof review, and knowledge discovery.
 
 ### Core Capabilities
 

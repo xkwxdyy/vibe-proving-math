@@ -1,6 +1,6 @@
 # Product Overview
 
-`vibe_proving` is an AI-powered mathematical research assistant designed for students and researchers. The platform integrates language models with theorem retrieval to support interactive workflows across learning, problem-solving, proof review, and knowledge discovery.
+`vibe_proving` is an AI platform for math researchers. The platform integrates language models with theorem retrieval to support interactive workflows across learning, problem-solving, proof review, and knowledge discovery.
 
 ## Design Philosophy
 
