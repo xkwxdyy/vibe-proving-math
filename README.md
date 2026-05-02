@@ -1,78 +1,480 @@
-# vibe_proving
+<div align="center">
 
-面向数学学习、研究与证明验证的多模式 AI 系统：分层讲解、生成–验证–修订式求解、论文与证明审查、定理检索，以及 Lean/mathlib 自动形式化（Beta）。
+![vibe_proving banner](assets/banner.svg)
 
-更完整的产品视角说明见 [PRODUCT_INTRO.md](PRODUCT_INTRO.md)。开发者约定见 [CLAUDE.md](CLAUDE.md)。
+<h3>AI-Powered Mathematical Reasoning Companion</h3>
 
-## 能力一览
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.104+-green.svg)](https://fastapi.tiangolo.com)
 
-| 能力 | 说明 |
-|------|------|
-| 学习模式 | 前置知识、分层证明讲解、例子与延伸 |
-| 研究求解 | Generator–Verifier–Reviser；TheoremSearch 引用核查；反例与主动拒绝 |
-| 论文审查 | 文本 / LaTeX / 图片 / PDF；逻辑、引用、符号一致性；SSE 流式 |
-| 自动形式化 | 自然语言 → Lean；检索、蓝图、生成、验证与修复（Beta） |
-| 定理检索 | `GET /search` 对接 TheoremSearch |
-| 知识库 | 本地文档分块与 BM25 式检索（无强制向量库） |
+[English](#english) | [中文](#中文)
 
-## 架构（概览）
+</div>
+
+---
+
+## 中文
+
+**vibe_proving** 是一个面向数学学习、研究与证明验证的多模式 AI 系统。它将前沿的大语言模型与数学形式化工具结合，为数学工作者提供从学习到研究、从验证到形式化的全流程 AI 辅助。
+
+### ✨ 核心能力
+
+- **📚 学习模式** — 为任意数学命题生成分层讲解（前置知识、完整证明、例子、延伸阅读），支持本科/研究生两种难度
+- **🔬 研究求解** — Generator–Verifier–Reviser 证明流水线，自动生成证明、核查定理引用、评估置信度，支持反例测试与主动拒绝
+- **📝 证明审查** — 上传 PDF/LaTeX/图片，AI 自动审查逻辑漏洞、定理引用准确性、符号一致性，生成结构化报告
+- **🔍 定理检索** — 搜索 900 万+ 自然语言数学定理（arXiv、Stacks Project 等），精准匹配相关引用
+- **🔧 自动形式化** — 将自然语言数学命题转换为 Lean 4 代码，支持 Mathlib 检索、编译验证与自动修复（Beta）
+- **💾 项目管理** — 创建独立研究项目，长期记忆会话历史，组织知识库
+
+### 🎯 设计理念
+
+不同于通用 AI 助手，vibe_proving 专注于数学场景的深度定制：
+
+- **质控优先** — 内置 TheoremSearch 引用核查、反例测试、置信度评估，拒绝低质证明
+- **工作流原生** — 5 种模式对应真实数学工作流（学习、求解、审查、检索、形式化）
+- **流式交互** — SSE 实时推送进度与结果，支持大规模论文审查与长证明生成
+- **开放集成** — 兼容 OpenAI API 格式的所有 LLM，可对接 DeepSeek、Gemini、Claude 等
+- **本地优先** — 无强制云服务依赖，除 OCR 外所有功能可本地运行
+
+### 🖼️ 界面预览
+
+<div align="center">
+
+![界面截图](assets/screenshot.png)
+
+*五大模式统一界面：学习、求解、审查、检索、形式化*
+
+</div>
+
+### 🚀 快速开始
+
+#### 安装依赖
+
+```bash
+cd app
+python -m venv .venv
+
+# Windows
+.venv\Scripts\activate
+
+# macOS/Linux
+source .venv/bin/activate
+
+pip install -r requirements.txt
+```
+
+#### 配置 LLM
+
+复制配置模板并填写 API Key：
+
+```bash
+cp config.example.toml config.toml
+# 编辑 config.toml 填写 [llm] 区块的 api_key
+```
+
+或通过前端设置面板运行时配置（推荐）：
+
+1. 启动服务后访问 `http://127.0.0.1:8080/ui/`
+2. 点击右上角设置图标 ⚙️
+3. 填写 LLM API 配置（Base URL + API Key + Model）
+
+支持所有 OpenAI 兼容端点：
+
+| 提供商 | Base URL | 获取密钥 |
+|--------|----------|----------|
+| **DeepSeek**（推荐：性价比） | `https://api.deepseek.com/v1` | [platform.deepseek.com](https://platform.deepseek.com/api_keys) |
+| **Gemini**（推荐：推理能力） | `https://generativelanguage.googleapis.com/v1beta/openai` | [aistudio.google.com](https://aistudio.google.com/apikey) |
+| OpenAI 官方 | `https://api.openai.com/v1` | [platform.openai.com](https://platform.openai.com/api-keys) |
+| SiliconFlow | `https://api.siliconflow.cn/v1` | [cloud.siliconflow.cn](https://cloud.siliconflow.cn) |
+| 通义千问 | `https://dashscope.aliyuncs.com/compatible-mode/v1` | [dashscope.aliyun.com](https://dashscope.aliyun.com) |
+
+#### 启动服务
+
+```bash
+python -m uvicorn api.server:app --host 127.0.0.1 --port 8080
+```
+
+访问：
+- 🌐 Web UI：`http://127.0.0.1:8080/ui/`
+- 📖 API 文档：`http://127.0.0.1:8080/docs`
+- ❤️ 健康检查：`http://127.0.0.1:8080/health`
+
+### 📚 使用示例
+
+#### 学习模式：分层讲解
+
+```bash
+curl -X POST http://127.0.0.1:8080/learn \
+  -H "Content-Type: application/json" \
+  -d '{
+    "statement": "证明：素数有无穷多个",
+    "level": "undergraduate",
+    "lang": "zh"
+  }'
+```
+
+返回包含背景、前置知识、完整证明、例子、延伸阅读的 Markdown 报告。
+
+#### 研究求解：GVR 证明流水线
+
+```bash
+curl -X POST http://127.0.0.1:8080/solve \
+  -H "Content-Type: application/json" \
+  -d '{
+    "statement": "证明：对于任意正整数 n，n^2 + n + 41 是素数"
+  }'
+```
+
+系统会：
+1. 🔍 搜索相关定理
+2. 🤖 生成初始证明
+3. 🧪 测试反例（发现 n=40 时不成立）
+4. ✅ 返回 `verdict: counterexample` 与反例
+
+#### 论文审查：PDF 结构化分析
+
+```bash
+curl -X POST http://127.0.0.1:8080/review_pdf_stream \
+  -F "file=@paper.pdf" \
+  -F "check_logic=true" \
+  -F "check_citations=true" \
+  -F "lang=zh"
+```
+
+逐条推送审查结果，标注逻辑漏洞、引用错误、符号不一致。
+
+#### 定理检索：语义搜索
+
+```bash
+curl "http://127.0.0.1:8080/search?q=Cauchy序列收敛性&top_k=5"
+```
+
+返回最相关的 5 条定理，包含相似度、论文链接、定理陈述。
+
+### 🏗️ 架构概览
 
 ```mermaid
-flowchart TB
-    subgraph client [访问层]
-        direction LR
-        user[用户]
-        web[Web UI]
-        apiCaller[API 调用方]
-    end
-    subgraph backend [FastAPI]
-        direction LR
-        routes[路由]
-        out[SSE 或 JSON]
-    end
-    subgraph modes [模式编排]
-        direction LR
-        learn[学习]
-        solve[求解]
-        review[审查]
-        formal[形式化]
-    end
-    subgraph tools [工具与质控]
-        direction LR
-        skills[Skills]
-        sanitize[输出清洗]
-        mem[记忆]
-        kb[知识库]
-    end
-    subgraph ext [外部服务]
-        direction LR
-        llm[OpenAI 兼容 LLM]
-        ts[TheoremSearch]
-        ocr[OCR PDF]
-        lean[Lean 验证]
-    end
-    user --> web --> routes
-    user --> apiCaller --> routes
-    routes --> learn & solve & review & formal
-    learn & solve & review & formal --> skills
-    learn --> mem
-    learn & solve & review --> kb
-    review --> ocr
-    formal --> lean
-    skills --> llm & ts
-    skills --> sanitize
-    mem --> sanitize
-    kb --> sanitize
-    ocr --> sanitize
-    lean --> sanitize
-    sanitize --> out --> web & apiCaller
+flowchart LR
+    A[Web UI] --> B[FastAPI Server]
+    C[API Client] --> B
+    B --> D[Learning Pipeline]
+    B --> E[Solving Pipeline]
+    B --> F[Review Pipeline]
+    B --> G[Formalization]
+    D & E & F --> H[LLM Core]
+    E & F --> I[TheoremSearch]
+    F --> J[Nanonets OCR]
+    G --> K[Lean Verifier]
+    H --> L[Text Sanitizer]
+    I & J & K --> L
+    L --> A & C
 ```
+
+- **前端**：原生 HTML/CSS/JS，Markdown + KaTeX 渲染
+- **后端**：FastAPI + Pydantic，SSE 流式输出
+- **LLM 层**：统一 OpenAI 接口，支持流式/非流式
+- **质控层**：LaTeX 清洗、定理验证、反例测试
+- **外部服务**：TheoremSearch（900万定理）、Nanonets OCR（PDF 解析）
+
+### 🧪 测试
+
+快速回归测试（跳过耗时集成测试）：
+
+```bash
+cd app
+python -m pytest tests -m "not slow"
+```
+
+完整测试（需真实 API Key 与 PDF fixtures）：
+
+```bash
+python -m pytest tests -m slow
+```
+
+### 📖 API 文档
+
+完整端点文档见 [OpenAPI Swagger UI](http://127.0.0.1:8080/docs)，主要端点：
+
+| 端点 | 方法 | 功能 |
+|------|------|------|
+| `/learn` | POST | 生成分层教学讲解 |
+| `/solve` | POST | GVR 证明流水线 |
+| `/review_stream` | POST | 文本/图片审查（流式） |
+| `/review_pdf_stream` | POST | PDF 审查（流式） |
+| `/formalize` | POST | 自动形式化为 Lean 4 |
+| `/search` | GET | TheoremSearch 定理检索 |
+| `/health` | GET | 服务健康检查 |
+
+详细参数说明见 [API 完整文档](#api-端点)。
+
+### 🤝 贡献指南
+
+我们欢迎所有形式的贡献！
+
+- 🐛 **Bug 报告**：[提交 Issue](https://github.com/ml1301215/vibe-proving-math/issues)
+- 💡 **功能建议**：描述使用场景与预期行为
+- 📝 **代码贡献**：Fork 后提交 PR，遵循 [CLAUDE.md](CLAUDE.md) 编码约定
+- 📚 **文档改进**：修正错误或补充示例
+
+开发约定：
+- Python 代码遵循 PEP 8，避免无意义注释
+- 前端修改 `app.js` 后需递增 `index.html` 中的 `?v=` 版本号
+- LaTeX 输出必须经过 `text_sanitize.py` 清洗
+- 新增 API 端点需补充测试用例
+
+### 📄 许可证
+
+本项目采用 [MIT License](LICENSE) 授权。
+
+### 🙏 致谢
+
+设计与实现参考或集成了以下思路与生态：
+
+- [TheoremSearch](https://www.theoremsearch.com) — 定理检索与引用核查
+- [Aletheia](https://arxiv.org/abs/2602.10177) — Generator–Verifier–Reviser 范式
+- [LATRACE](https://github.com/zxxz1000/LATRACE) — 长期记忆机制
+- [Lean 4](https://lean-lang.org) 与 [Mathlib](https://leanprover-community.github.io) — 形式化验证
+
+### 📞 联系方式
+
+- **问题反馈**：[GitHub Issues](https://github.com/ml1301215/vibe-proving-math/issues)
+- **项目主页**：[github.com/ml1301215/vibe-proving-math](https://github.com/ml1301215/vibe-proving-math)
+
+---
+
+## English
+
+**vibe_proving** is a multi-mode AI system for mathematical learning, research, and proof verification. It combines cutting-edge large language models with formal math tools, providing end-to-end AI assistance for mathematicians—from learning to research, verification to formalization.
+
+### ✨ Core Capabilities
+
+- **📚 Learning Mode** — Generate layered explanations for any mathematical proposition (prerequisites, complete proof, examples, extensions) with undergraduate/graduate difficulty levels
+- **🔬 Research Solving** — Generator–Verifier–Reviser proof pipeline with automatic proof generation, theorem citation checking, confidence assessment, counterexample testing, and active rejection
+- **📝 Proof Review** — Upload PDF/LaTeX/images for automated logic gap detection, citation accuracy verification, symbol consistency checks, and structured reports
+- **🔍 Theorem Search** — Search 9M+ natural language math theorems (arXiv, Stacks Project, etc.) with precise semantic matching
+- **🔧 Auto-Formalization** — Convert natural language math statements to Lean 4 code, with Mathlib retrieval, compilation verification, and auto-repair (Beta)
+- **💾 Project Management** — Create isolated research projects with long-term memory and knowledge base organization
+
+### 🎯 Design Philosophy
+
+Unlike general AI assistants, vibe_proving is deeply specialized for mathematical workflows:
+
+- **Quality-First** — Built-in TheoremSearch citation checking, counterexample testing, confidence scoring; rejects low-quality proofs
+- **Workflow-Native** — 5 modes mapping to real mathematical workflows (learn, solve, review, search, formalize)
+- **Streaming UX** — SSE real-time progress and results, supporting large-scale paper review and long proof generation
+- **Open Integration** — Compatible with all OpenAI-format LLMs: DeepSeek, Gemini, Claude, etc.
+- **Local-First** — No mandatory cloud dependencies; all features except OCR can run locally
+
+### 🖼️ UI Preview
+
+<div align="center">
+
+![Screenshot](assets/screenshot.png)
+
+*Unified interface for five modes: Learn, Solve, Review, Search, Formalize*
+
+</div>
+
+### 🚀 Quick Start
+
+#### Install Dependencies
+
+```bash
+cd app
+python -m venv .venv
+
+# Windows
+.venv\Scripts\activate
+
+# macOS/Linux
+source .venv/bin/activate
+
+pip install -r requirements.txt
+```
+
+#### Configure LLM
+
+Copy the config template and fill in your API key:
+
+```bash
+cp config.example.toml config.toml
+# Edit config.toml to fill [llm] section's api_key
+```
+
+Or configure at runtime via the frontend settings panel (recommended):
+
+1. Start the service and visit `http://127.0.0.1:8080/ui/`
+2. Click the settings icon ⚙️ in the top-right
+3. Fill in LLM API Config (Base URL + API Key + Model)
+
+Supports all OpenAI-compatible endpoints:
+
+| Provider | Base URL | Get Key |
+|----------|----------|---------|
+| **DeepSeek** (Recommended: cost-effective) | `https://api.deepseek.com/v1` | [platform.deepseek.com](https://platform.deepseek.com/api_keys) |
+| **Gemini** (Recommended: reasoning) | `https://generativelanguage.googleapis.com/v1beta/openai` | [aistudio.google.com](https://aistudio.google.com/apikey) |
+| OpenAI Official | `https://api.openai.com/v1` | [platform.openai.com](https://platform.openai.com/api-keys) |
+| SiliconFlow | `https://api.siliconflow.cn/v1` | [cloud.siliconflow.cn](https://cloud.siliconflow.cn) |
+| Qwen (Tongyi) | `https://dashscope.aliyuncs.com/compatible-mode/v1` | [dashscope.aliyun.com](https://dashscope.aliyun.com) |
+
+#### Start Service
+
+```bash
+python -m uvicorn api.server:app --host 127.0.0.1 --port 8080
+```
+
+Visit:
+- 🌐 Web UI: `http://127.0.0.1:8080/ui/`
+- 📖 API Docs: `http://127.0.0.1:8080/docs`
+- ❤️ Health Check: `http://127.0.0.1:8080/health`
+
+### 📚 Usage Examples
+
+#### Learning Mode: Layered Explanation
+
+```bash
+curl -X POST http://127.0.0.1:8080/learn \
+  -H "Content-Type: application/json" \
+  -d '{
+    "statement": "Prove: There are infinitely many primes",
+    "level": "undergraduate",
+    "lang": "en"
+  }'
+```
+
+Returns a Markdown report with background, prerequisites, complete proof, examples, and extensions.
+
+#### Research Solving: GVR Proof Pipeline
+
+```bash
+curl -X POST http://127.0.0.1:8080/solve \
+  -H "Content-Type: application/json" \
+  -d '{
+    "statement": "Prove: For any positive integer n, n^2 + n + 41 is prime"
+  }'
+```
+
+The system will:
+1. 🔍 Search related theorems
+2. 🤖 Generate initial proof
+3. 🧪 Test counterexamples (finds n=40 fails)
+4. ✅ Return `verdict: counterexample` with counterexample
+
+#### Proof Review: PDF Structured Analysis
+
+```bash
+curl -X POST http://127.0.0.1:8080/review_pdf_stream \
+  -F "file=@paper.pdf" \
+  -F "check_logic=true" \
+  -F "check_citations=true" \
+  -F "lang=en"
+```
+
+Streams review results progressively, flagging logic gaps, citation errors, and symbol inconsistencies.
+
+#### Theorem Search: Semantic Search
+
+```bash
+curl "http://127.0.0.1:8080/search?q=Cauchy+sequence+convergence&top_k=5"
+```
+
+Returns the 5 most relevant theorems with similarity scores, paper links, and theorem statements.
+
+### 🏗️ Architecture Overview
+
+```mermaid
+flowchart LR
+    A[Web UI] --> B[FastAPI Server]
+    C[API Client] --> B
+    B --> D[Learning Pipeline]
+    B --> E[Solving Pipeline]
+    B --> F[Review Pipeline]
+    B --> G[Formalization]
+    D & E & F --> H[LLM Core]
+    E & F --> I[TheoremSearch]
+    F --> J[Nanonets OCR]
+    G --> K[Lean Verifier]
+    H --> L[Text Sanitizer]
+    I & J & K --> L
+    L --> A & C
+```
+
+- **Frontend**: Vanilla HTML/CSS/JS with Markdown + KaTeX rendering
+- **Backend**: FastAPI + Pydantic with SSE streaming
+- **LLM Layer**: Unified OpenAI interface, streaming/non-streaming
+- **QC Layer**: LaTeX sanitization, theorem verification, counterexample testing
+- **External Services**: TheoremSearch (9M theorems), Nanonets OCR (PDF parsing)
+
+### 🧪 Testing
+
+Fast regression (skips time-consuming integration tests):
+
+```bash
+cd app
+python -m pytest tests -m "not slow"
+```
+
+Full test suite (requires real API keys and PDF fixtures):
+
+```bash
+python -m pytest tests -m slow
+```
+
+### 📖 API Documentation
+
+Full endpoint docs at [OpenAPI Swagger UI](http://127.0.0.1:8080/docs). Main endpoints:
+
+| Endpoint | Method | Function |
+|----------|--------|----------|
+| `/learn` | POST | Generate layered explanations |
+| `/solve` | POST | GVR proof pipeline |
+| `/review_stream` | POST | Text/image review (streaming) |
+| `/review_pdf_stream` | POST | PDF review (streaming) |
+| `/formalize` | POST | Auto-formalize to Lean 4 |
+| `/search` | GET | TheoremSearch theorem retrieval |
+| `/health` | GET | Service health check |
+
+See the [full API section](#api-端点) for detailed parameters.
+
+### 🤝 Contributing
+
+We welcome all forms of contribution!
+
+- 🐛 **Bug Reports**: [Submit Issue](https://github.com/ml1301215/vibe-proving-math/issues)
+- 💡 **Feature Requests**: Describe use case and expected behavior
+- 📝 **Code Contributions**: Fork and submit PR, follow [CLAUDE.md](CLAUDE.md) conventions
+- 📚 **Docs Improvements**: Fix errors or add examples
+
+Development conventions:
+- Python code follows PEP 8, avoid meaningless comments
+- After editing `app.js`, increment the `?v=` version in `index.html`
+- LaTeX output must pass through `text_sanitize.py`
+- New API endpoints require test coverage
+
+### 📄 License
+
+This project is licensed under the [MIT License](LICENSE).
+
+### 🙏 Acknowledgments
+
+Design and implementation reference or integrate ideas from:
+
+- [TheoremSearch](https://www.theoremsearch.com) — Theorem search and citation checking
+- [Aletheia](https://arxiv.org/abs/2602.10177) — Generator–Verifier–Reviser paradigm
+- [LATRACE](https://github.com/zxxz1000/LATRACE) — Long-term memory mechanism
+- [Lean 4](https://lean-lang.org) & [Mathlib](https://leanprover-community.github.io) — Formal verification
+
+### 📞 Contact
+
+- **Issue Tracking**: [GitHub Issues](https://github.com/ml1301215/vibe-proving-math/issues)
+- **Project Home**: [github.com/ml1301215/vibe-proving-math](https://github.com/ml1301215/vibe-proving-math)
+
+---
 
 ## API 端点
 
 完整 OpenAPI 文档见 `GET /docs`（Swagger UI）。以下为各端点速查。
-
----
 
 ### 学习模式
 
@@ -287,6 +689,36 @@ TheoremSearch 透传，搜索 900 万+ 自然语言数学定理（arXiv、Stacks
 
 ---
 
+### 配置端点
+
+#### `POST /config/llm`
+
+运行时更新 LLM 配置（Base URL、API Key、Model）。
+
+**请求体（JSON）：**
+
+```json
+{
+  "base_url": "https://api.deepseek.com/v1",
+  "api_key": "sk-...",
+  "model": "deepseek-chat"
+}
+```
+
+#### `POST /config/nanonets`
+
+运行时更新 Nanonets OCR API Key。
+
+**请求体（JSON）：**
+
+```json
+{
+  "api_key": "your-nanonets-key"
+}
+```
+
+---
+
 ### 其他
 
 | 方法 | 路径 | 说明 |
@@ -294,96 +726,3 @@ TheoremSearch 透传，搜索 900 万+ 自然语言数学定理（arXiv、Stacks
 | GET | `/docs` | OpenAPI Swagger UI（自动生成） |
 | GET | `/ui/` | 单页前端（静态托管） |
 | GET | `/` | 重定向至 `/ui/` |
-
-## 快速开始
-
-```bash
-cd app
-python -m venv .venv
-# Windows: .venv\Scripts\activate
-# Unix:    source .venv/bin/activate
-pip install -r requirements.txt
-cp config.example.toml config.toml
-# 编辑 config.toml：至少填写 [llm].api_key；按需填写定理检索、OCR、记忆等
-python -m uvicorn api.server:app --host 127.0.0.1 --port 8080
-```
-
-访问：`http://127.0.0.1:8080/ui/`、`http://127.0.0.1:8080/docs`、`http://127.0.0.1:8080/health`。
-
-### LLM 配置
-
-前端「设置」面板支持在运行时热切换 Base URL / API Key / Model，无需重启服务。  
-后端调用标准 [OpenAI Chat Completions API](https://platform.openai.com/docs/api-reference/chat)，兼容所有使用 OpenAI 接口协议的服务，包括官方端点和各类中转站。
-
-| 提供商 | Base URL | 获取密钥 |
-|--------|----------|----------|
-| DeepSeek（推荐：极致性价比） | `https://api.deepseek.com/v1` | [platform.deepseek.com](https://platform.deepseek.com/api_keys) |
-| Gemini（推荐：极致推理能力） | `https://generativelanguage.googleapis.com/v1beta/openai` | [aistudio.google.com](https://aistudio.google.com/apikey) |
-| OpenAI 官方 | `https://api.openai.com/v1` | [platform.openai.com](https://platform.openai.com/api-keys) |
-| SiliconFlow | `https://api.siliconflow.cn/v1` | [cloud.siliconflow.cn](https://cloud.siliconflow.cn) |
-| Moonshot (Kimi) | `https://api.moonshot.cn/v1` | [platform.moonshot.cn](https://platform.moonshot.cn) |
-| 通义千问 (Qwen) | `https://dashscope.aliyuncs.com/compatible-mode/v1` | [dashscope.aliyun.com](https://dashscope.aliyun.com) |
-| OneAPI / 自建中转 | `http://your-host/v1` | 自定义 | 
-
-> 只要服务支持 OpenAI Chat Completions 格式，直接填入 Base URL 与 API Key 即可，无需任何代码改动。
-
-### 配置文件路径
-
-- 默认读取 `app/config.toml`（已被 `.gitignore` 忽略，勿提交）。
-- 可通过环境变量 `VP_CONFIG_PATH` 指向任意路径的 TOML。
-- 测试在未找到 `config.toml` 时会自动从 `config.example.toml` 复制到临时文件并设置 `VP_CONFIG_PATH`。
-
-## 测试
-
-```bash
-cd app
-python -m pytest tests -m "not slow"
-```
-
-完整集成（真实 API / OCR / PDF fixtures）：
-
-```bash
-python -m pytest tests -m slow
-```
-
-论文 PDF fixture 不包含在仓库中，见 [app/tests/fixtures/paper_review_pdfs/README.md](app/tests/fixtures/paper_review_pdfs/README.md)。
-
-## 仓库结构
-
-| 路径 | 说明 |
-|------|------|
-| `app/` | 应用代码、前端、测试 |
-| `research/` | 设计与调研文档 |
-| `PRODUCT_INTRO.md` | 产品介绍与功能流程图 |
-| `LICENSE` | MIT |
-
-以下目录**不包含**在公开仓库中（见 `.gitignore`）：`FATE/`、`Archon/`、`Rethlas/`、本地 Lean 环境、评估产物、含密钥的 `app/config.toml`。
-
-## 安全与密钥
-
-- **切勿**将真实 `api_key`、`token` 提交到 git。
-- 若曾在本地提交过密钥，请在对应平台**吊销并轮换**，再使用本仓库的干净历史分支推送到 GitHub。
-
-## 致谢与参考
-
-设计与实现参考或集成了以下思路与生态（详见 `research/`）：
-
-- [TheoremSearch](https://www.theoremsearch.com) — 定理检索与引用核查
-- Aletheia（arXiv:2602.10177）— Generator–Verifier–Reviser
-- [LATRACE](https://github.com/zxxz1000/LATRACE) — 可选长期记忆
-- [Rethlas](https://github.com/frenzymath/Rethlas)、[Archon](https://github.com/frenzymath/Archon) — 架构启发（本仓库不包含其源码）
-
-## 协议
-
-本项目以 [LICENSE](LICENSE)（MIT）授权。
-
-## 推送到 GitHub（仅公开干净历史）
-
-本仓库的 **`public/main`** 分支为 orphan 根提交（`chore: initial public release`），不含旧历史中可能泄漏的密钥。推送时**只推该分支**到远端默认分支即可：
-
-```bash
-git remote add origin https://github.com/<org>/<repo>.git   # 若尚未添加
-git push -u origin public/main:main
-```
-
-本地仍保留旧分支与对象时，请勿执行 `git push --mirror` 或推送整个 `.git` 到公开位置。若曾在旧提交中使用过真实 API Key / Token，请到各服务商控制台**吊销并轮换**。
