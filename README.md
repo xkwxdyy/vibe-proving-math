@@ -26,42 +26,49 @@ AI-driven mathematical research assistant for students and researchers
 - **Review Mode** — Structured analysis of mathematical writing (LaTeX/PDF/images)
 - **Search Mode** — Semantic search across 9M+ theorems from arXiv and mathematical databases
 
+![Interface](assets/screenshot_en.png)
+
 ### Video Demonstrations
 
 <table>
 <tr>
-<td width="50%">
+<td width="50%" align="center">
 
 **Learning Mode**  
-[![Learning Mode](assets/screenshot_en.png)](https://github.com/user-attachments/assets/ff33ef0e-b330-4d79-bb06-3a0c4cd9f920)
+[![▶️ Learning Mode](assets/screenshot_en.png)](https://github.com/user-attachments/assets/ff33ef0e-b330-4d79-bb06-3a0c4cd9f920)  
+*Click to play video*
 
 </td>
-<td width="50%">
+<td width="50%" align="center">
 
 **Problem Solving**  
-[![Problem Solving](assets/screenshot_en.png)](https://github.com/user-attachments/assets/ce5e17b3-e9e9-45ce-a038-c2b6b672d440)
+[![▶️ Problem Solving](assets/screenshot_en.png)](https://github.com/user-attachments/assets/ce5e17b3-e9e9-45ce-a038-c2b6b672d440)  
+*Click to play video*
 
 </td>
 </tr>
 <tr>
-<td width="50%">
+<td width="50%" align="center">
 
 **Proof Review**  
-[![Proof Review](assets/screenshot_en.png)](https://github.com/user-attachments/assets/eec047a3-c791-4938-a4fc-5e322ccfb2da)
+[![▶️ Proof Review](assets/screenshot_en.png)](https://github.com/user-attachments/assets/eec047a3-c791-4938-a4fc-5e322ccfb2da)  
+*Click to play video*
 
 </td>
-<td width="50%">
+<td width="50%" align="center">
 
 **Literature Search**  
-[![Literature Search](assets/screenshot_en.png)](https://github.com/user-attachments/assets/588b3f73-7b4f-4040-acd2-d7243c10b3dc)
+[![▶️ Literature Search](assets/screenshot_en.png)](https://github.com/user-attachments/assets/588b3f73-7b4f-4040-acd2-d7243c10b3dc)  
+*Click to play video*
 
 </td>
 </tr>
 <tr>
-<td width="50%">
+<td width="50%" align="center">
 
 **Formalization**  
-[![Formalization](assets/screenshot_en.png)](https://github.com/user-attachments/assets/3dd05428-e023-4903-bb6b-0cc2e7dad42c)
+[![▶️ Formalization](assets/screenshot_en.png)](https://github.com/user-attachments/assets/3dd05428-e023-4903-bb6b-0cc2e7dad42c)  
+*Click to play video*
 
 </td>
 <td width="50%">
@@ -69,8 +76,6 @@ AI-driven mathematical research assistant for students and researchers
 </td>
 </tr>
 </table>
-
-![Interface](assets/screenshot_en.png)
 
 ---
 

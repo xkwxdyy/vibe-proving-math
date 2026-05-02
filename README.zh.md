@@ -26,42 +26,49 @@
 - **审查模式** — 对数学写作（LaTeX/PDF/图片）进行结构化分析
 - **检索模式** — 在 900 万+ 定理中进行语义搜索
 
+![界面](assets/screenshot.png)
+
 ### 视频演示
 
 <table>
 <tr>
-<td width="50%">
+<td width="50%" align="center">
 
 **学习模式**  
-[![学习模式](assets/screenshot.png)](https://github.com/user-attachments/assets/ff33ef0e-b330-4d79-bb06-3a0c4cd9f920)
+[![▶️ 学习模式](assets/screenshot.png)](https://github.com/user-attachments/assets/ff33ef0e-b330-4d79-bb06-3a0c4cd9f920)  
+*点击播放视频*
 
 </td>
-<td width="50%">
+<td width="50%" align="center">
 
 **问题求解**  
-[![问题求解](assets/screenshot.png)](https://github.com/user-attachments/assets/ce5e17b3-e9e9-45ce-a038-c2b6b672d440)
+[![▶️ 问题求解](assets/screenshot.png)](https://github.com/user-attachments/assets/ce5e17b3-e9e9-45ce-a038-c2b6b672d440)  
+*点击播放视频*
 
 </td>
 </tr>
 <tr>
-<td width="50%">
+<td width="50%" align="center">
 
 **证明审查**  
-[![证明审查](assets/screenshot.png)](https://github.com/user-attachments/assets/eec047a3-c791-4938-a4fc-5e322ccfb2da)
+[![▶️ 证明审查](assets/screenshot.png)](https://github.com/user-attachments/assets/eec047a3-c791-4938-a4fc-5e322ccfb2da)  
+*点击播放视频*
 
 </td>
-<td width="50%">
+<td width="50%" align="center">
 
 **文献检索**  
-[![文献检索](assets/screenshot.png)](https://github.com/user-attachments/assets/588b3f73-7b4f-4040-acd2-d7243c10b3dc)
+[![▶️ 文献检索](assets/screenshot.png)](https://github.com/user-attachments/assets/588b3f73-7b4f-4040-acd2-d7243c10b3dc)  
+*点击播放视频*
 
 </td>
 </tr>
 <tr>
-<td width="50%">
+<td width="50%" align="center">
 
 **自动形式化**  
-[![自动形式化](assets/screenshot.png)](https://github.com/user-attachments/assets/3dd05428-e023-4903-bb6b-0cc2e7dad42c)
+[![▶️ 自动形式化](assets/screenshot.png)](https://github.com/user-attachments/assets/3dd05428-e023-4903-bb6b-0cc2e7dad42c)  
+*点击播放视频*
 
 </td>
 <td width="50%">
@@ -69,8 +76,6 @@
 </td>
 </tr>
 </table>
-
-![界面](assets/screenshot.png)
 
 ---
 
