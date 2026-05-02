@@ -33,13 +33,13 @@ AI-driven mathematical research assistant for students and researchers
 <td width="50%">
 
 **Learning Mode**  
-[![Learning Mode](assets/screenshot_en.png)](https://github.com/user-attachments/assets/588b3f73-7b4f-4040-acd2-d7243c10b3dc)
+[![Learning Mode](assets/screenshot_en.png)](https://github.com/user-attachments/assets/ff33ef0e-b330-4d79-bb06-3a0c4cd9f920)
 
 </td>
 <td width="50%">
 
 **Problem Solving**  
-[![Problem Solving](assets/screenshot_en.png)](https://github.com/user-attachments/assets/ff33ef0e-b330-4d79-bb06-3a0c4cd9f920)
+[![Problem Solving](assets/screenshot_en.png)](https://github.com/user-attachments/assets/ce5e17b3-e9e9-45ce-a038-c2b6b672d440)
 
 </td>
 </tr>
@@ -47,13 +47,24 @@ AI-driven mathematical research assistant for students and researchers
 <td width="50%">
 
 **Proof Review**  
-[![Proof Review](assets/screenshot_en.png)](https://github.com/user-attachments/assets/186e9541-b64f-419f-9682-94298e61d189)
+[![Proof Review](assets/screenshot_en.png)](https://github.com/user-attachments/assets/eec047a3-c791-4938-a4fc-5e322ccfb2da)
 
 </td>
 <td width="50%">
 
 **Literature Search**  
-[![Literature Search](assets/screenshot_en.png)](https://github.com/user-attachments/assets/ce5e17b3-e9e9-45ce-a038-c2b6b672d440)
+[![Literature Search](assets/screenshot_en.png)](https://github.com/user-attachments/assets/588b3f73-7b4f-4040-acd2-d7243c10b3dc)
+
+</td>
+</tr>
+<tr>
+<td width="50%">
+
+**Formalization**  
+[![Formalization](assets/screenshot_en.png)](https://github.com/user-attachments/assets/3dd05428-e023-4903-bb6b-0cc2e7dad42c)
+
+</td>
+<td width="50%">
 
 </td>
 </tr>
