@@ -21,12 +21,12 @@
 
 ### 核心能力
 
+![界面](assets/screenshot.png)
+
 - **学习模式** — 生成包含前置知识、证明、例子和扩展的结构化讲解
 - **求解模式** — 自动证明生成，包含引用验证和置信度评分
 - **审查模式** — 对数学写作（LaTeX/PDF/图片）进行结构化分析
 - **检索模式** — 在 900 万+ 定理中进行语义搜索
-
-![界面](assets/screenshot.png)
 
 ### 视频演示
 
@@ -121,10 +121,11 @@
 
 ### 5. 形式化
 
-自然语言到 Lean 4 的转换：
-- 关键词提取和 Mathlib 检索
-- 蓝图规划
-- 带自动修复的代码生成
+基于 [Harmonic Aristotle](https://aristotle.harmonic.fun)：
+- 提交自然语言数学陈述
+- 自动转换为 Lean 4 代码
+- 集成 Mathlib 定理数据库
+- 实时编译和验证
 
 ---
 
@@ -181,40 +182,42 @@ python -m uvicorn api.server:app --host 127.0.0.1 --port 8080
 ## 架构
 
 ```
-┌────────────────────────────────────────────────┐
-│              Web 界面                          │
-│      (原生 JS + KaTeX + SSE 流式)              │
-└───────────────────┬────────────────────────────┘
+┌─────────────────────────────────────────────────┐
+│          Web 界面 (原生 JS + KaTeX)             │
+│          服务器推送事件流式输出                  │
+└────────────────────┬────────────────────────────┘
+                     │
+        ┌────────────▼──────────────┐
+        │   FastAPI 服务器          │
+        │   /learn /solve /review   │
+        │   /search /formalize      │
+        └────────────┬──────────────┘
+                     │
+     ┌───────────────┼────────────────┐
+     │               │                │
+┌────▼─────┐  ┌─────▼──────┐  ┌─────▼──────┐
+│ 学习流水 │  │  求解流水  │  │  审查流水  │
+│   线     │  │    线      │  │    线      │
+└────┬─────┘  └─────┬──────┘  └─────┬──────┘
+     │              │                │
+     └──────────────┼────────────────┘
                     │
-       ┌────────────▼────────────┐
-       │   FastAPI 服务器        │
-       │   (Python 3.10+)        │
-       └────────────┬────────────┘
-                    │
-    ┌───────────────┼───────────────┐
-    │               │               │
-┌───▼────┐   ┌─────▼──────┐   ┌───▼────┐
-│学习流水│   │  求解流水  │   │审查流水│
-│  线    │   │    线      │   │  线    │
-└───┬────┘   └─────┬──────┘   └───┬────┘
-    │              │              │
-    └──────────────┼──────────────┘
-                   │
-    ┌──────────────┼──────────────┐
-    │              │              │
-┌───▼──────┐  ┌───▼────────┐  ┌─▼────────┐
-│ LLM 核心 │  │  定理检索  │  │ Nanonets │
-│ (OpenAI  │  │ (引用验证) │  │   OCR    │
-│   API)   │  │            │  │  (PDF)   │
-└──────────┘  └────────────┘  └──────────┘
+     ┌──────────────┼────────────────┐
+     │              │                │
+┌────▼─────┐  ┌────▼──────┐  ┌──────▼──────┐
+│ LLM 核心 │  │ 定理检索  │  │ 形式化      │
+│(OpenAI   │  │ API       │  │ (Aristotle) │
+│  兼容)   │  │           │  │             │
+└──────────┘  └───────────┘  └─────────────┘
 ```
 
 **关键组件**：
 
-- **前端**：单页应用，Markdown + KaTeX 渲染
-- **后端**：FastAPI，支持 Server-Sent Events 渐进式流式输出
-- **LLM 集成**：OpenAI 兼容接口（DeepSeek、Gemini、OpenAI 等）
-- **引用验证**：TheoremSearch API 集成
+- **前端**：单页应用，实时流式输出和 KaTeX 渲染
+- **后端**：FastAPI，支持 SSE 渐进式响应
+- **LLM 集成**：OpenAI 兼容接口（DeepSeek、Gemini、OpenAI）
+- **定理检索**：TheoremSearch API 用于引用验证
+- **形式化**：Harmonic Aristotle 生成 Lean 4 代码
 - **PDF 处理**：Nanonets OCR 保留公式的提取
 
 ---
@@ -249,42 +252,24 @@ curl -X POST http://127.0.0.1:8080/solve \
 
 ---
 
-## 使用场景
-
-### 学生
-
-- **概念探索**：输入陌生定理获取前置知识分解
-- **证明理解**：逐步演示包含推理注释
-- **考试准备**：生成练习题和详细解答
-
-### 研究者
-
-- **文献综述**：定理数据库的语义搜索
-- **证明起草**：生成包含引用建议的初始草稿
-- **稿件审查**：提交前的自动一致性检查
-
----
-
 ## 贡献
 
 欢迎数学社区的贡献：
 
 - **错误报告**：[GitHub Issues](https://github.com/ml1301215/vibe-proving-math/issues)
-- **功能请求**：描述使用场景和预期行为
 - **代码贡献**：遵循 [CLAUDE.md](CLAUDE.md) 中的规范
-- **文档**：改进示例、修正错误、翻译内容
 
 ---
 
 ## 致谢
 
-- [TheoremSearch](https://www.theoremsearch.com) — 语义定理数据库
+- [TheoremSearch](https://www.theoremsearch.com) — 语义定理检索
+- [Harmonic Aristotle](https://aristotle.harmonic.fun) — 自动形式化
+- [Research Math Assistant](https://github.com/ml1301215/research-math-assistant) — 数学科研助手
+- [Rethlas](https://github.com/frenzymath/Rethlas) — 自然语言推理系统
 - [Aletheia](https://arxiv.org/abs/2602.10177) — 生成–验证–修订架构
-- [Rethlas](https://github.com/frenzymath/Rethlas) — 基于生成和验证代理的自然语言推理系统
 - [LATRACE](https://github.com/zxxz1000/LATRACE) — 长期记忆系统
 - [Nanonets OCR](https://nanonets.com) — 公式感知的 PDF 提取
-- [Harmonic Aristotle](https://aristotle.harmonic.fun) — Lean 4 形式化引擎
-- [Research Math Assistant](https://github.com/ml1301215/research-math-assistant) — 社区资源
 
 ---
 

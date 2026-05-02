@@ -21,12 +21,12 @@ AI-driven mathematical research assistant for students and researchers
 
 ### Core Capabilities
 
+![Interface](assets/screenshot_en.png)
+
 - **Learning Mode** — Generate structured explanations with prerequisites, proofs, examples, and extensions
 - **Solving Mode** — Automated proof generation with citation verification and confidence scoring
 - **Review Mode** — Structured analysis of mathematical writing (LaTeX/PDF/images)
 - **Search Mode** — Semantic search across 9M+ theorems from arXiv and mathematical databases
-
-![Interface](assets/screenshot_en.png)
 
 ### Video Demonstrations
 
@@ -121,10 +121,11 @@ Semantic search:
 
 ### 5. Formalization
 
-Natural language to Lean 4 translation:
-- Keyword extraction and Mathlib retrieval
-- Blueprint planning
-- Code generation with automated repair
+Powered by [Harmonic Aristotle](https://aristotle.harmonic.fun):
+- Submit natural language mathematical statements
+- Automatic translation to Lean 4 code
+- Integrated with Mathlib theorem database
+- Real-time compilation and verification
 
 ---
 
@@ -181,40 +182,42 @@ All API keys can be configured through the web interface — no need to edit con
 ## Architecture
 
 ```
-┌────────────────────────────────────────────────┐
-│              Web Interface                     │
-│      (Vanilla JS + KaTeX + SSE Streaming)      │
-└───────────────────┬────────────────────────────┘
+┌─────────────────────────────────────────────────┐
+│          Web UI (Vanilla JS + KaTeX)            │
+│       Server-Sent Events for Streaming          │
+└────────────────────┬────────────────────────────┘
+                     │
+        ┌────────────▼──────────────┐
+        │   FastAPI Server          │
+        │   /learn /solve /review   │
+        │   /search /formalize      │
+        └────────────┬──────────────┘
+                     │
+     ┌───────────────┼────────────────┐
+     │               │                │
+┌────▼─────┐  ┌─────▼──────┐  ┌─────▼──────┐
+│ Learning │  │  Solving   │  │  Review    │
+│ Pipeline │  │  Pipeline  │  │  Pipeline  │
+└────┬─────┘  └─────┬──────┘  └─────┬──────┘
+     │              │                │
+     └──────────────┼────────────────┘
                     │
-       ┌────────────▼────────────┐
-       │   FastAPI Server        │
-       │   (Python 3.10+)        │
-       └────────────┬────────────┘
-                    │
-    ┌───────────────┼───────────────┐
-    │               │               │
-┌───▼────┐   ┌─────▼──────┐   ┌───▼────┐
-│Learning│   │  Solving   │   │ Review │
-│Pipeline│   │  Pipeline  │   │Pipeline│
-└───┬────┘   └─────┬──────┘   └───┬────┘
-    │              │              │
-    └──────────────┼──────────────┘
-                   │
-    ┌──────────────┼──────────────┐
-    │              │              │
-┌───▼──────┐  ┌───▼────────┐  ┌─▼────────┐
-│ LLM Core │  │  Theorem   │  │ Nanonets │
-│ (OpenAI  │  │  Search    │  │   OCR    │
-│   API)   │  │ (Citation) │  │  (PDF)   │
-└──────────┘  └────────────┘  └──────────┘
+     ┌──────────────┼────────────────┐
+     │              │                │
+┌────▼─────┐  ┌────▼──────┐  ┌──────▼──────┐
+│ LLM Core │  │ Theorem   │  │ Formalization│
+│(OpenAI   │  │ Search    │  │ (Aristotle) │
+│Compatible)│  │ API       │  │             │
+└──────────┘  └───────────┘  └─────────────┘
 ```
 
 **Key Components**:
 
-- **Frontend**: Single-page application with Markdown + KaTeX rendering
-- **Backend**: FastAPI with Server-Sent Events for progressive streaming
-- **LLM Integration**: OpenAI-compatible interface (DeepSeek, Gemini, OpenAI, etc.)
-- **Citation Verification**: TheoremSearch API integration
+- **Frontend**: Single-page app with real-time streaming and KaTeX rendering
+- **Backend**: FastAPI with SSE support for progressive responses
+- **LLM Integration**: OpenAI-compatible interface (DeepSeek, Gemini, OpenAI)
+- **Theorem Retrieval**: TheoremSearch API for citation verification
+- **Formalization**: Harmonic Aristotle for Lean 4 code generation
 - **PDF Processing**: Nanonets OCR for formula-preserving extraction
 
 ---
@@ -249,42 +252,24 @@ curl -X POST http://127.0.0.1:8080/solve \
 
 ---
 
-## Use Cases
-
-### For Students
-
-- **Concept Exploration**: Input unfamiliar theorems to receive prerequisite breakdowns
-- **Proof Understanding**: Step-by-step walkthroughs with reasoning annotations
-- **Exam Preparation**: Generate practice problems and worked examples
-
-### For Researchers
-
-- **Literature Review**: Semantic search across theorem databases
-- **Proof Drafting**: Generate initial proof sketches with citation suggestions
-- **Manuscript Review**: Automated consistency checking before submission
-
----
-
 ## Contributing
 
 We welcome contributions from the mathematical community:
 
 - **Bug Reports**: [GitHub Issues](https://github.com/ml1301215/vibe-proving-math/issues)
-- **Feature Requests**: Describe use cases and expected behavior
 - **Code Contributions**: Follow conventions in [CLAUDE.md](CLAUDE.md)
-- **Documentation**: Improve examples, fix errors, translate content
 
 ---
 
 ## Acknowledgments
 
-- [TheoremSearch](https://www.theoremsearch.com) — Semantic theorem database
+- [TheoremSearch](https://www.theoremsearch.com) — Semantic theorem retrieval
+- [Harmonic Aristotle](https://aristotle.harmonic.fun) — Automated formalization
+- [Research Math Assistant](https://github.com/ml1301215/research-math-assistant) — Mathematical research assistant
+- [Rethlas](https://github.com/frenzymath/Rethlas) — Natural language reasoning system
 - [Aletheia](https://arxiv.org/abs/2602.10177) — Generator–Verifier–Reviser architecture
-- [Rethlas](https://github.com/frenzymath/Rethlas) — Natural-language reasoning system with generation and verification agents
 - [LATRACE](https://github.com/zxxz1000/LATRACE) — Long-term memory system
 - [Nanonets OCR](https://nanonets.com) — Formula-aware PDF extraction
-- [Harmonic Aristotle](https://aristotle.harmonic.fun) — Lean 4 formalization engine
-- [Research Math Assistant](https://github.com/ml1301215/research-math-assistant) — Community resources
 
 ---
 
