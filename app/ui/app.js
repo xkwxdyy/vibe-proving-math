@@ -3037,18 +3037,6 @@ window.copyMsgText = function(btn) {
   }).catch(() => showToast('error', t('ui.err.copyFailed')));
 };
 
-window.thumbMsg = function(btn, dir) {
-  btn.classList.toggle('active');
-  if (btn.classList.contains('active')) {
-    btn.textContent = dir === 'up' ? '✓' : '✓';
-    const isZh = AppState.lang === 'zh';
-    showToast('success', dir === 'up'
-      ? (isZh ? '感谢反馈！' : 'Thank you!')
-      : (isZh ? '已记录' : 'Noted'), 1800);
-  } else {
-    btn.textContent = dir === 'up' ? '↑' : '↓';
-  }
-};
 
 function makeThinkingHtml(message) {
   const msg = message || t('ui.thinking');

@@ -1039,10 +1039,6 @@ kbd {
   border-color: var(--green);
 }
 
-/* 拇指反馈 */
-.thumb-btn { }
-.thumb-btn.active { color: var(--accent); border-color: var(--accent); }
-
 /* { } LaTeX 生成按钮 —— 附着于气泡操作行，带轻微 accent */
 .msg-latex-btn {
   color: var(--accent);
