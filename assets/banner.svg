@@ -1,82 +1,108 @@
-<svg width="1200" height="260" xmlns="http://www.w3.org/2000/svg">
+<svg width="1400" height="320" xmlns="http://www.w3.org/2000/svg">
   <defs>
     <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#08080c;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#14141a;stop-opacity:1" />
+      <stop offset="0%" style="stop-color:#06060a;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#12121c;stop-opacity:1" />
     </linearGradient>
     <linearGradient id="gold" x1="0%" y1="0%" x2="100%" y2="0%">
-      <stop offset="0%" style="stop-color:#8b7355;stop-opacity:0.3" />
-      <stop offset="50%" style="stop-color:#b8986f;stop-opacity:0.5" />
-      <stop offset="100%" style="stop-color:#8b7355;stop-opacity:0.3" />
+      <stop offset="0%" style="stop-color:#7a654d;stop-opacity:0.25" />
+      <stop offset="50%" style="stop-color:#a89070;stop-opacity:0.45" />
+      <stop offset="100%" style="stop-color:#7a654d;stop-opacity:0.25" />
     </linearGradient>
+    <radialGradient id="glow" cx="50%" cy="50%">
+      <stop offset="0%" style="stop-color:#c8b896;stop-opacity:0.15" />
+      <stop offset="100%" style="stop-color:#06060a;stop-opacity:0" />
+    </radialGradient>
     <filter id="blur">
-      <feGaussianBlur in="SourceGraphic" stdDeviation="1.2" />
+      <feGaussianBlur in="SourceGraphic" stdDeviation="1.5" />
     </filter>
   </defs>
 
   <!-- Background -->
-  <rect width="1200" height="260" fill="url(#bg)"/>
+  <rect width="1400" height="320" fill="url(#bg)"/>
+  <ellipse cx="700" cy="160" rx="600" ry="300" fill="url(#glow)"/>
 
-  <!-- Penrose tiling pattern (abstract, subtle) -->
-  <g opacity="0.08" stroke="url(#gold)" fill="none" stroke-width="0.6">
-    <!-- Kite tiles -->
-    <path d="M 150,80 L 180,120 L 150,160 L 130,120 Z"/>
-    <path d="M 180,120 L 210,160 L 180,200 L 150,160 Z"/>
-    <path d="M 210,80 L 240,120 L 210,160 L 180,120 Z"/>
+  <!-- Penrose tiling pattern (larger, more prominent) -->
+  <g opacity="0.10" stroke="url(#gold)" fill="none" stroke-width="0.7">
+    <!-- Left cluster - Kite and Dart tiles -->
+    <path d="M 160,100 L 195,145 L 160,190 L 135,145 Z"/>
+    <path d="M 195,145 L 230,190 L 195,235 L 160,190 Z"/>
+    <path d="M 230,100 L 265,145 L 230,190 L 195,145 Z"/>
+    <path d="M 265,145 L 300,190 L 265,235 L 230,190 Z"/>
 
-    <!-- Dart tiles -->
-    <path d="M 270,100 L 285,130 L 270,160 L 255,130 Z"/>
-    <path d="M 285,130 L 300,160 L 285,190 L 270,160 Z"/>
+    <path d="M 310,125 L 330,160 L 310,195 L 290,160 Z"/>
+    <path d="M 330,160 L 350,195 L 330,230 L 310,195 Z"/>
+    <path d="M 350,110 L 370,145 L 350,180 L 330,145 Z"/>
 
-    <!-- Right side mirror -->
-    <path d="M 1050,80 L 1020,120 L 1050,160 L 1070,120 Z"/>
-    <path d="M 1020,120 L 990,160 L 1020,200 L 1050,160 Z"/>
-    <path d="M 990,80 L 960,120 L 990,160 L 1020,120 Z"/>
-    <path d="M 930,100 L 915,130 L 930,160 L 945,130 Z"/>
-    <path d="M 915,130 L 900,160 L 915,190 L 930,160 Z"/>
+    <!-- Center abstract geometric shapes -->
+    <path d="M 450,140 Q 500,100 550,140 Q 600,180 550,220 Q 500,260 450,220 Q 400,180 450,140"/>
+    <circle cx="700" cy="160" r="80" stroke-dasharray="3,5"/>
+    <circle cx="700" cy="160" r="110" stroke-dasharray="4,7"/>
+    <circle cx="700" cy="160" r="140" stroke-dasharray="5,9" opacity="0.6"/>
+
+    <path d="M 850,140 Q 900,100 950,140 Q 1000,180 950,220 Q 900,260 850,220 Q 800,180 850,140"/>
+
+    <!-- Right cluster - Mirror -->
+    <path d="M 1240,100 L 1205,145 L 1240,190 L 1265,145 Z"/>
+    <path d="M 1205,145 L 1170,190 L 1205,235 L 1240,190 Z"/>
+    <path d="M 1170,100 L 1135,145 L 1170,190 L 1205,145 Z"/>
+    <path d="M 1135,145 L 1100,190 L 1135,235 L 1170,190 Z"/>
+
+    <path d="M 1090,125 L 1070,160 L 1090,195 L 1110,160 Z"/>
+    <path d="M 1070,160 L 1050,195 L 1070,230 L 1090,195 Z"/>
+    <path d="M 1050,110 L 1030,145 L 1050,180 L 1070,145 Z"/>
   </g>
 
-  <!-- Golden ratio spiral (subtle, background) -->
-  <g opacity="0.05" stroke="url(#gold)" fill="none" stroke-width="0.8">
-    <path d="M 100,130 Q 100,100 130,100 Q 160,100 160,130 Q 160,170 130,170 Q 80,170 80,130 Q 80,70 140,70 Q 200,70 200,130" filter="url(#blur)"/>
+  <!-- Golden ratio spiral (background, subtle) -->
+  <g opacity="0.06" stroke="url(#gold)" fill="none" stroke-width="1.0" filter="url(#blur)">
+    <path d="M 120,160 Q 120,120 160,120 Q 200,120 200,160 Q 200,210 160,210 Q 100,210 100,160 Q 100,90 170,90 Q 240,90 240,160 Q 240,240 170,240"/>
+    <path d="M 1280,160 Q 1280,120 1240,120 Q 1200,120 1200,160 Q 1200,210 1240,210 Q 1300,210 1300,160 Q 1300,90 1230,90 Q 1160,90 1160,160"/>
   </g>
 
-  <!-- Symmetric geometric accents -->
-  <g opacity="0.12" stroke="#9a8869" fill="none" stroke-width="0.5">
-    <circle cx="360" cy="130" r="40" stroke-dasharray="2,4"/>
-    <circle cx="360" cy="130" r="60" stroke-dasharray="3,6"/>
-    <circle cx="840" cy="130" r="40" stroke-dasharray="2,4"/>
-    <circle cx="840" cy="130" r="60" stroke-dasharray="3,6"/>
+  <!-- Connecting lines (subtle symmetry) -->
+  <g opacity="0.08" stroke="#a89070" fill="none" stroke-width="0.5">
+    <line x1="400" y1="160" x2="500" y2="160" stroke-dasharray="2,4"/>
+    <line x1="900" y1="160" x2="1000" y2="160" stroke-dasharray="2,4"/>
+    <line x1="550" y1="100" x2="850" y2="100" stroke-dasharray="3,6" opacity="0.5"/>
+    <line x1="550" y1="220" x2="850" y2="220" stroke-dasharray="3,6" opacity="0.5"/>
   </g>
-
-  <!-- Center line (subtle) -->
-  <line x1="350" y1="130" x2="850" y2="130" stroke="#8b7355" stroke-width="0.3" opacity="0.2"/>
 
   <!-- Main title -->
-  <text x="600" y="120"
+  <text x="700" y="140"
         font-family="'Palatino Linotype', 'Palatino', 'Baskerville', 'Georgia', serif"
-        font-size="48"
+        font-size="56"
         font-weight="300"
-        fill="#d8d8da"
+        fill="#dcdce0"
         text-anchor="middle"
-        letter-spacing="6">
+        letter-spacing="8">
     vibe_proving
   </text>
 
   <!-- Tagline -->
-  <text x="600" y="155"
+  <text x="700" y="185"
         font-family="'Palatino Linotype', 'Palatino', 'Baskerville', serif"
-        font-size="13"
+        font-size="15"
         font-weight="300"
-        fill="#8a8a92"
+        fill="#8a8a94"
         text-anchor="middle"
-        letter-spacing="10">
-    MATHEMATICAL  REASONING  SYSTEM
+        letter-spacing="12">
+    MATHEMATICAL  RESEARCH  ASSISTANT
   </text>
 
-  <!-- Bottom accent -->
-  <g opacity="0.15">
-    <line x1="450" y1="190" x2="750" y2="190" stroke="url(#gold)" stroke-width="0.6"/>
-    <line x1="470" y1="195" x2="730" y2="195" stroke="#8b7355" stroke-width="0.4"/>
+  <!-- Subtitle -->
+  <text x="700" y="215"
+        font-family="'Palatino Linotype', 'Palatino', serif"
+        font-size="12"
+        font-weight="300"
+        fill="#6a6a74"
+        text-anchor="middle"
+        letter-spacing="6">
+    Language Models • Theorem Retrieval • Interactive Workflows
+  </text>
+
+  <!-- Bottom accent lines -->
+  <g opacity="0.18">
+    <line x1="480" y1="255" x2="920" y2="255" stroke="url(#gold)" stroke-width="0.8"/>
+    <line x1="510" y1="262" x2="890" y2="262" stroke="#8a7a66" stroke-width="0.5"/>
   </g>
 </svg>

@@ -1,92 +1,114 @@
 # 产品概述
 
-`vibe_proving` 是围绕五种模式设计的数学推理系统：学习、求解、审查、检索、形式化。结合语言模型与外部验证机制，降低数学场景中的幻觉风险。
+`vibe_proving` 是面向学生和研究者的 AI 数学研究助手。平台将语言模型与定理检索集成，支持学习、求解、审查、检索等交互式工作流。
 
-## 架构
+## 设计理念
 
-系统实现生成后独立验证的流水线：
+与通用 AI 助手不同，vibe_proving 通过外部验证优先保证数学正确性：
 
-1. **生成器** — 产生初始证明或解释
-2. **验证器** — 在不访问生成器推理链的情况下评估步骤
-3. **修订器** — 整合反馈以修复错误
-4. **引用检查** — 查询 TheoremSearch 进行定理验证
-5. **反例引擎** — 在接受声明前尝试证伪
+1. **引用验证** — 语言模型输出与定理数据库交叉检查
+2. **独立验证** — 在不访问生成器推理的情况下验证证明步骤
+3. **反例生成** — 在接受声明前主动尝试证伪
+4. **置信度报告** — 透明的不确定性评估，明确置信度评分
+5. **定理检索** — 在来自数学文献的 900 万+ 索引定理中进行语义搜索
 
-该架构参考了 [Aletheia](https://arxiv.org/abs/2602.10177) 及降低自动推理中确认偏差的相关工作。
+该架构降低了数学场景中的幻觉风险，在准确性不可妥协的情况下尤为重要。
 
-## 模式
+## 核心能力
 
 ### 学习模式
-生成结构化数学讲解：
-- 前置知识（定义、背景定理）
-- 带注释的证明大纲
-- 具体例子
-- 扩展与相关结果
 
-目标用户：遇到陌生材料的学生和研究者。
+生成结构化数学讲解：
+- **前置知识**：背景定义和所需定理
+- **证明演示**：带注释的逐步推理
+- **例子**：具体实例和反例
+- **扩展**：相关结果和推广
+
+目标难度级别：本科或研究生。
 
 ### 求解模式
-证明生成流水线：
-1. 直接检索（检查问题是否已解决）
-2. 带逐步验证的证明生成
-3. 通过 TheoremSearch 进行引用检查
-4. 反例测试（针对猜想）
-5. 置信度评分和判定（`proved`、`counterexample`、`partial`、`no_confident_solution`）
 
-返回包含引用、障碍和失败路径的结构化输出。
+包含质量控制的证明生成流水线：
+1. **直接检索**：检查定理数据库中是否已有解答
+2. **证明生成**：创建包含推理步骤的初始草案
+3. **独立验证**：在不依赖生成器偏差的情况下验证逻辑
+4. **引用检查**：通过 TheoremSearch 验证定理引用
+5. **反例测试**：在接受前尝试证伪声明
+6. **置信度评分**：透明评估，明确不确定性
+
+输出包括结构化证明、已验证引用、失败路径和推理障碍。
 
 ### 审查模式
-数学写作的结构化分析：
-- 逻辑缺口检测（缺失步骤、循环论证）
-- 引用准确性（定理存在性和相关性）
-- 符号一致性（变量作用域、假设跟踪）
 
-支持文本、LaTeX、图片（通过多模态模型）和 PDF（通过 OCR）。
+数学写作的结构化分析：
+- **逻辑一致性**：检测缺失步骤、循环论证、不合理跳跃
+- **引用准确性**：验证引用定理的存在性和正确陈述
+- **符号一致性**：跟踪变量作用域和假设依赖关系
+
+支持格式：文本、LaTeX、图片（通过视觉模型）、PDF（通过 OCR）。
 
 ### 检索模式
-通过 [TheoremSearch](https://www.theoremsearch.com) 对来自 arXiv、Stacks Project 等来源的 900 万+ 定理进行语义搜索。
 
-### 形式化模式（Beta）
-自然语言 → Lean 4 转换：
-1. 从自然语言陈述中提取关键词
-2. Mathlib 检索相关定义和引理
-3. 蓝图规划（证明结构）
-4. 代码生成
-5. 验证（本地或远程）
-6. 基于编译器错误的迭代修复
+语义定理检索：
+- 来自 arXiv、Stacks Project 和专业数据库的 900 万+ 定理索引
+- 自然语言查询，无需公式语法
+- 相似度评分与排序
+- 原始论文直链
 
-目前处于实验阶段，需要进一步基准测试。
+## 技术架构
+
+```
+Web 界面 (HTML/CSS/JS + KaTeX)
+         │
+    FastAPI 服务器
+         │
+  ┌──────┴──────┬──────────┬─────────┐
+  │             │          │         │
+学习流水线   求解流水线  审查流水线  检索流水线
+  │             │          │         │
+  └─────────────┴──────────┴─────────┘
+                 │
+    ┌────────────┼────────────┐
+    │            │            │
+ LLM 核心   TheoremSearch  Nanonets
+(OpenAI)    (引用检查)      (OCR)
+```
+
+### 质量控制机制
+
+1. **外部引用数据库**：TheoremSearch API 防止虚假引用
+2. **独立验证**：证明验证器在没有生成器上下文的情况下运行
+3. **反例引擎**：在声称真理前主动证伪
+4. **LaTeX 清洗**：为前端渲染自动清理
+5. **置信度阈值**：系统在不确定时拒绝回答
 
 ## 技术栈
 
-- **后端**：FastAPI，支持 Server-Sent Events 流式输出
+- **后端**：FastAPI，支持 Server-Sent Events 渐进式流式输出
 - **前端**：原生 HTML/CSS/JS（无构建工具链）
-- **LLM 集成**：OpenAI 兼容接口（支持 DeepSeek、Gemini、OpenAI 等）
-- **引用验证**：TheoremSearch API
-- **PDF 解析**：Nanonets OCR（主要），带降级选项
-- **形式化验证**：通过远程验证器使用 Lean 4 + Mathlib
-
-## 质量控制
-
-多层机制防止常见失败模式：
-- **引用幻觉**：外部定理数据库查找
-- **逻辑错误**：独立验证步骤
-- **虚假声明**：反例生成
-- **LaTeX 问题**：控制序列的自动清洗
-- **置信度报告**：系统在不确定时拒绝回答
+- **LLM 集成**：OpenAI 兼容接口（模型无关）
+- **定理数据库**：TheoremSearch API
+- **PDF 处理**：Nanonets OCR 保留公式的提取
+- **形式化验证**（Beta）：Harmonic Aristotle 支持 Lean 4
 
 ## 部署
 
-通过 `config.toml` 配置（从 `config.example.toml` 复制）。最低要求：LLM API 密钥。可选服务（TheoremSearch、OCR、记忆系统）增强功能但非基本操作所必需。
+通过 `config.toml` 配置：
 
-```bash
-cd app
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-cp config.example.toml config.toml
-# 编辑 config.toml：设置 [llm].api_key
-python -m uvicorn api.server:app --host 127.0.0.1 --port 8080
+```toml
+[llm]
+base_url = "https://api.deepseek.com/v1"
+api_key = "your-key"
+model = "deepseek-chat"
+
+[theorem_search]
+base_url = "https://api.theoremsearch.com"
+
+[nanonets]
+api_key = "your-key"  # 可选，用于 PDF 审查
 ```
+
+最低要求：LLM API 密钥。可选服务增强功能但非核心操作所必需。
 
 ## 测试
 
@@ -95,13 +117,7 @@ pytest tests -m "not slow"  # 快速回归
 pytest tests                # 完整套件（需要 API 密钥）
 ```
 
-测试覆盖：
-- 配置解析
-- LLM 客户端集成
-- 所有五种模式
-- 引用验证
-- LaTeX 清洗
-- 错误处理
+覆盖范围包括配置、LLM 集成、所有操作模式、引用验证、LaTeX 清洗和错误处理。
 
 ## 当前状态
 
@@ -109,9 +125,9 @@ pytest tests                # 完整套件（需要 API 密钥）
 |--------|--------|-------|
 | 学习 | 稳定 | 带记忆集成的流式讲解 |
 | 求解 | 稳定 | 带引用检查的 GVR 流水线 |
-| 审查 | 稳定 | 质量取决于 OCR/解析后端 |
+| 审查 | 稳定 | 质量取决于 OCR 后端 |
 | 检索 | 稳定 | 直接 TheoremSearch 集成 |
-| 形式化 | Beta | 需要扩展基准评估 |
+| 形式化 | Beta | 面向研究用户的 Lean 4 转换 |
 
 ## 设计约束
 
@@ -121,27 +137,28 @@ pytest tests                # 完整套件（需要 API 密钥）
 4. **本地优先**：在可行的情况下最小化云依赖
 5. **开放集成**：标准接口（OpenAI API、REST）而非专有格式
 
-## 与替代方案的比较
+## 对比
 
 **vs. 通用 LLM 聊天机器人**：增加引用检查、证明验证和结构化工作流
 
 **vs. Wolfram Alpha**：处理超越符号计算的抽象证明
 
-**vs. Lean 证明器**：提供自然语言接口和自动形式化
-
 **vs. arXiv**：提供语义搜索和结构化证明分析
 
-## 未来方向
+**vs. Lean 证明器**：提供自然语言接口，无需形式化语法
 
-- 扩展 Lean 形式化基准
+## 未来发展
+
+- 扩展定理数据库覆盖
 - 提高 PDF 解析可靠性
 - 添加协作功能（团队项目、共享知识库）
-- 集成额外定理数据库
-- 支持 Lean 之外的证明助手（Coq、Isabelle）
+- 支持额外证明助手
 
 ## 参考文献
 
-- [TheoremSearch](https://www.theoremsearch.com) — 定理数据库
+- [TheoremSearch](https://www.theoremsearch.com) — 定理数据库和引用验证
 - [Aletheia](https://arxiv.org/abs/2602.10177) — 生成–验证–修订架构
-- [LATRACE](https://github.com/zxxz1000/LATRACE) — 记忆系统
-- [Rethlas](https://github.com/frenzymath/Rethlas) — 架构启发
+- [LATRACE](https://github.com/zxxz1000/LATRACE) — 长期记忆系统
+- [Nanonets](https://nanonets.com) — 公式感知的 PDF 提取
+- [Harmonic Aristotle](https://aristotle.harmonic.fun) — Lean 4 形式化
+- [Research Math Assistant](https://github.com/ml1301215/research-math-assistant) — 社区资源

@@ -1,92 +1,115 @@
 # Product Overview
 
-`vibe_proving` is a mathematical reasoning system designed around five modes: learning, solving, reviewing, searching, and formalizing. It combines language models with external verification mechanisms to reduce hallucination in mathematical contexts.
+`vibe_proving` is an AI-powered mathematical research assistant designed for students and researchers. The platform integrates language models with theorem retrieval to support interactive workflows across learning, problem-solving, proof review, and knowledge discovery.
 
-## Architecture
+## Design Philosophy
 
-The system implements a pipeline where generation is followed by independent verification:
+Unlike general-purpose AI assistants, vibe_proving prioritizes mathematical correctness through external verification:
 
-1. **Generator** — Produces initial proofs or explanations
-2. **Verifier** — Evaluates steps without access to generator's reasoning chain
-3. **Reviser** — Incorporates feedback to repair errors
-4. **Citation Checker** — Queries TheoremSearch for theorem verification
-5. **Counterexample Engine** — Attempts to falsify claims before accepting them
+1. **Citation Verification** — Language model outputs are cross-checked against theorem databases
+2. **Independent Validation** — Proof steps are verified without access to generator reasoning
+3. **Counterexample Generation** — Active falsification attempts before accepting claims
+4. **Confidence Reporting** — Transparent uncertainty assessment with explicit confidence scores
+5. **Theorem Retrieval** — Semantic search across 9M+ indexed theorems from mathematical literature
 
-This architecture is informed by [Aletheia](https://arxiv.org/abs/2602.10177) and related work on reducing confirmation bias in automated reasoning.
+This architecture reduces hallucination risk in mathematical contexts where accuracy is non-negotiable.
 
-## Modes
+## Core Capabilities
 
 ### Learning Mode
-Generates structured mathematical explanations:
-- Prerequisites (definitions, background theorems)
-- Proof outline with annotations
-- Worked examples
-- Extensions and related results
 
-Target audience: Students and researchers encountering unfamiliar material.
+Generates structured mathematical explanations:
+- **Prerequisites**: Background definitions and required theorems
+- **Proof Walkthrough**: Step-by-step reasoning with annotations
+- **Examples**: Concrete instances and counterexamples
+- **Extensions**: Related results and generalizations
+
+Target difficulty levels: undergraduate or graduate.
 
 ### Solving Mode
-Proof generation pipeline:
-1. Direct retrieval (check if problem already solved)
-2. Proof generation with step-by-step verification
-3. Citation checking via TheoremSearch
-4. Counterexample testing (for conjectures)
-5. Confidence scoring and verdict (`proved`, `counterexample`, `partial`, `no_confident_solution`)
 
-Returns structured output with references, obstacles, and failed paths.
+Proof generation pipeline with quality control:
+1. **Direct Retrieval**: Check if problem already solved in theorem databases
+2. **Proof Generation**: Create initial draft with reasoning steps
+3. **Independent Verification**: Validate logic without generator bias
+4. **Citation Checking**: Verify theorem references via TheoremSearch
+5. **Counterexample Testing**: Attempt to falsify claims before accepting
+6. **Confidence Scoring**: Transparent assessment with explicit uncertainty
+
+Output includes structured proof, verified citations, failed paths, and reasoning obstacles.
 
 ### Review Mode
-Structured analysis of mathematical writing:
-- Logic gap detection (missing steps, circular reasoning)
-- Citation accuracy (theorem existence and relevance)
-- Symbol consistency (variable scope, assumption tracking)
 
-Supports text, LaTeX, images (via multimodal models), and PDF (via OCR).
+Structured analysis of mathematical writing:
+- **Logic Consistency**: Detect missing steps, circular reasoning, unjustified leaps
+- **Citation Accuracy**: Verify referenced theorems exist and are correctly stated
+- **Symbol Consistency**: Track variable scope and assumption dependencies
+
+Supported formats: text, LaTeX, images (via vision models), PDF (via OCR).
 
 ### Search Mode
-Semantic search over 9M+ theorems from arXiv, Stacks Project, and other sources via [TheoremSearch](https://www.theoremsearch.com).
 
-### Formalization Mode (Beta)
-Natural language → Lean 4 translation:
-1. Keyword extraction from natural language statement
-2. Mathlib retrieval for relevant definitions and lemmas
-3. Blueprint planning (proof structure)
-4. Code generation
-5. Verification (local or remote)
-6. Iterative repair based on compiler errors
+Semantic theorem retrieval:
+- 9M+ theorems indexed from arXiv, Stacks Project, and specialized databases
+- Natural language queries without formula syntax requirements
+- Similarity scoring and ranking
+- Direct links to original papers
 
-Currently experimental; requires further benchmarking.
+## Technical Architecture
+
+```
+Web Interface (HTML/CSS/JS + KaTeX)
+         │
+    FastAPI Server
+         │
+  ┌──────┴──────┬──────────┬─────────┐
+  │             │          │         │
+Learning    Solving    Review    Search
+Pipeline    Pipeline   Pipeline  Pipeline
+  │             │          │         │
+  └─────────────┴──────────┴─────────┘
+                 │
+    ┌────────────┼────────────┐
+    │            │            │
+ LLM Core   TheoremSearch  Nanonets
+(OpenAI)    (Citation)      (OCR)
+```
+
+### Quality Control Mechanisms
+
+1. **External Citation Database**: TheoremSearch API prevents hallucinated references
+2. **Independent Verification**: Proof validator operates without generator context
+3. **Counterexample Engine**: Active falsification before claiming truth
+4. **LaTeX Sanitization**: Automatic cleaning for frontend rendering
+5. **Confidence Thresholds**: System refuses to answer when uncertain
 
 ## Technical Stack
 
-- **Backend**: FastAPI with Server-Sent Events for streaming
+- **Backend**: FastAPI with Server-Sent Events for progressive streaming
 - **Frontend**: Vanilla HTML/CSS/JS (no build toolchain)
-- **LLM Integration**: OpenAI-compatible interface (supports DeepSeek, Gemini, OpenAI, etc.)
-- **Citation Verification**: TheoremSearch API
-- **PDF Parsing**: Nanonets OCR (primary), with fallback options
-- **Formal Verification**: Lean 4 + Mathlib via remote verifier
-
-## Quality Control
-
-Multiple layers prevent common failure modes:
-- **Citation hallucination**: External theorem database lookup
-- **Logical errors**: Independent verification step
-- **False claims**: Counterexample generation
-- **LaTeX issues**: Automatic sanitization of control sequences
-- **Confidence reporting**: System refuses to answer when uncertain
+- **LLM Integration**: OpenAI-compatible interface (model-agnostic)
+- **Theorem Database**: TheoremSearch API
+- **PDF Processing**: Nanonets OCR for formula-preserving extraction
+- **Formal Verification** (Beta): Harmonic Aristotle for Lean 4
 
 ## Deployment
 
-Configuration via `config.toml` (copy from `config.example.toml`). Minimum requirement: LLM API key. Optional services (TheoremSearch, OCR, memory system) enhance functionality but are not required for basic operation.
+Configuration via `config.toml`:
 
-```bash
-cd app
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-cp config.example.toml config.toml
-# Edit config.toml: set [llm].api_key
-python -m uvicorn api.server:app --host 127.0.0.1 --port 8080
+```toml
+[llm]
+base_url = "https://api.deepseek.com/v1"
+api_key = "your-key"
+model = "deepseek-chat"
+
+[theorem_search]
+base_url = "https://api.theoremsearch.com"
+
+[nanonets]
+api_key = "your-key"  # Optional, for PDF review
 ```
+
+Minimum requirement: LLM API key. Optional services enhance functionality but are not required for core operations.
 
 ## Testing
 
@@ -95,13 +118,7 @@ pytest tests -m "not slow"  # Fast regression
 pytest tests                # Full suite (requires API keys)
 ```
 
-Test coverage includes:
-- Configuration parsing
-- LLM client integration
-- All five modes (learning, solving, reviewing, searching, formalizing)
-- Citation verification
-- LaTeX sanitization
-- Error handling
+Coverage includes configuration, LLM integration, all operational modes, citation verification, LaTeX sanitization, and error handling.
 
 ## Current Status
 
@@ -109,39 +126,40 @@ Test coverage includes:
 |--------|--------|-------|
 | Learning | Stable | Streaming explanations with memory integration |
 | Solving | Stable | GVR pipeline with citation checking |
-| Review | Stable | Quality depends on OCR/parsing backend |
+| Review | Stable | Quality depends on OCR backend |
 | Search | Stable | Direct TheoremSearch integration |
-| Formalization | Beta | Requires expanded benchmark evaluation |
+| Formalization | Beta | Lean 4 translation for research users |
 
 ## Design Constraints
 
-1. **Verification over trust**: Never accept model outputs without external checks when verification is available
+1. **Verification Over Trust**: Never accept model outputs without external checks when verification is available
 2. **Transparency**: Return confidence scores and failed paths, not just final answers
-3. **Academic rigor**: Optimize for correctness over speed
-4. **Local-first**: Minimize cloud dependencies where feasible
-5. **Open integration**: Standard interfaces (OpenAI API, REST) over proprietary formats
+3. **Academic Rigor**: Optimize for correctness over speed
+4. **Local-First**: Minimize cloud dependencies where feasible
+5. **Open Integration**: Standard interfaces (OpenAI API, REST) over proprietary formats
 
-## Comparison with Alternatives
+## Comparison
 
 **vs. General LLM Chatbots**: Adds citation checking, proof verification, and structured workflows
 
 **vs. Wolfram Alpha**: Handles abstract proofs beyond symbolic computation
 
-**vs. Lean Prover**: Provides natural language interface and automated formalization
-
 **vs. arXiv**: Offers semantic search and structured proof analysis
 
-## Future Directions
+**vs. Lean Prover**: Provides natural language interface without formal syntax requirements
 
-- Expand Lean formalization benchmark
+## Future Development
+
+- Expand theorem database coverage
 - Improve PDF parsing reliability
 - Add collaborative features (team projects, shared knowledge bases)
-- Integrate additional theorem databases
-- Support for proof assistants beyond Lean (Coq, Isabelle)
+- Support for additional proof assistants
 
 ## References
 
-- [TheoremSearch](https://www.theoremsearch.com) — Theorem database
+- [TheoremSearch](https://www.theoremsearch.com) — Theorem database and citation verification
 - [Aletheia](https://arxiv.org/abs/2602.10177) — Generator–Verifier–Reviser architecture
-- [LATRACE](https://github.com/zxxz1000/LATRACE) — Memory system
-- [Rethlas](https://github.com/frenzymath/Rethlas) — Architecture inspiration
+- [LATRACE](https://github.com/zxxz1000/LATRACE) — Long-term memory system
+- [Nanonets](https://nanonets.com) — Formula-aware PDF extraction
+- [Harmonic Aristotle](https://aristotle.harmonic.fun) — Lean 4 formalization
+- [Research Math Assistant](https://github.com/ml1301215/research-math-assistant) — Community resources
