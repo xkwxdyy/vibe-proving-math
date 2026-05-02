@@ -1,17 +1,23 @@
+<div align="center">
+
 ![vibe_proving](assets/banner.jpg)
 
-<p align="center">
+# 𝒱𝒾𝒷ℯ 𝒫𝓇ℴ𝓋𝒾𝓃ℊ
+
+<p>
 AI-driven mathematical research assistant for students and researchers
 </p>
 
-<p align="center">
+<p>
 <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License"></a>
-<a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.10+-blue.svg" alt="Python"></a>
+<a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.11+-blue.svg" alt="Python"></a>
 </p>
 
-<p align="center">
+<p>
 <a href="README.zh.md">中文</a> | English
 </p>
+
+</div>
 
 ---
 
@@ -21,7 +27,11 @@ AI-driven mathematical research assistant for students and researchers
 
 ### Core Capabilities
 
-![Interface](assets/screenshot_en.png)
+<div align="center">
+<img src="assets/screenshot_en.png" alt="Interface" style="border-radius: 12px; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12); border: 1px solid rgba(255, 255, 255, 0.18);" width="90%">
+</div>
+
+<br>
 
 - **Learning Mode** — Generate structured explanations with prerequisites, proofs, examples, and extensions
 - **Solving Mode** — Automated proof generation with citation verification and confidence scoring
@@ -222,7 +232,7 @@ All API keys can be configured through the web interface — no need to edit con
 
 ---
 
-## API Reference
+## 📡 API Reference
 
 Complete documentation at `/docs`. Core endpoints:
 
@@ -252,7 +262,7 @@ curl -X POST http://127.0.0.1:8080/solve \
 
 ---
 
-## Contributing
+## 🤝 Contributing
 
 We welcome contributions from the mathematical community:
 
@@ -261,7 +271,7 @@ We welcome contributions from the mathematical community:
 
 ---
 
-## Acknowledgments
+## 🙏 Acknowledgments
 
 - [TheoremSearch](https://www.theoremsearch.com) — Semantic theorem retrieval
 - [Harmonic Aristotle](https://aristotle.harmonic.fun) — Automated formalization
@@ -273,13 +283,13 @@ We welcome contributions from the mathematical community:
 
 ---
 
-## License
+## 📄 License
 
 [MIT License](LICENSE)
 
 ---
 
-## Contact
+## 📬 Contact
 
 **QQ Group**: 1093249787  
 **GitHub Issues**: [github.com/ml1301215/vibe-proving-math/issues](https://github.com/ml1301215/vibe-proving-math/issues)

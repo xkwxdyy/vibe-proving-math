@@ -1,17 +1,23 @@
+<div align="center">
+
 ![vibe_proving](assets/banner.jpg)
 
-<p align="center">
+# 𝒱𝒾𝒷ℯ 𝒫𝓇ℴ𝓋𝒾𝓃ℊ
+
+<p>
 面向学生和研究者的 AI 驱动数学研究助手
 </p>
 
-<p align="center">
+<p>
 <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License"></a>
-<a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.10+-blue.svg" alt="Python"></a>
+<a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.11+-blue.svg" alt="Python"></a>
 </p>
 
-<p align="center">
+<p>
 中文 | <a href="README.md">English</a>
 </p>
+
+</div>
 
 ---
 
@@ -21,7 +27,11 @@
 
 ### 核心能力
 
-![界面](assets/screenshot.png)
+<div align="center">
+<img src="assets/screenshot.png" alt="界面" style="border-radius: 12px; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12); border: 1px solid rgba(255, 255, 255, 0.18);" width="90%">
+</div>
+
+<br>
 
 - **学习模式** — 生成包含前置知识、证明、例子和扩展的结构化讲解
 - **求解模式** — 自动证明生成，包含引用验证和置信度评分
