@@ -1,4 +1,4 @@
-![vibe_proving](assets/banner.svg)
+![vibe_proving](assets/banner.png)
 
 <p align="center">
 AI-driven mathematical research assistant for students and researchers
@@ -125,11 +125,41 @@ Natural language to Lean 4 translation:
 
 ## Installation
 
+**Requirements:** Python 3.11 or higher
+
+### Linux / macOS
+
 ```bash
 git clone https://github.com/ml1301215/vibe-proving-math.git
 cd vibe-proving-math/app
-python -m venv .venv && source .venv/bin/activate  # Windows: .venv\Scripts\activate
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
+cp config.example.toml config.toml
+python -m uvicorn api.server:app --host 127.0.0.1 --port 8080
+```
+
+### Windows (PowerShell)
+
+```powershell
+git clone https://github.com/ml1301215/vibe-proving-math.git
+cd vibe-proving-math\app
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+copy config.example.toml config.toml
+python -m uvicorn api.server:app --host 127.0.0.1 --port 8080
+```
+
+### Windows (Command Prompt)
+
+```cmd
+git clone https://github.com/ml1301215/vibe-proving-math.git
+cd vibe-proving-math\app
+python -m venv .venv
+.venv\Scripts\activate.bat
+pip install -r requirements.txt
+copy config.example.toml config.toml
 python -m uvicorn api.server:app --host 127.0.0.1 --port 8080
 ```
 
@@ -139,7 +169,7 @@ Click the **settings icon (⚙️)** in the top-right corner to configure:
 - LLM API (Base URL, API Key, Model)
 - Nanonets OCR (for PDF review)
 
-No configuration file editing required — all settings can be managed through the web interface.
+All API keys can be configured through the web interface — no need to edit config.toml manually.
 
 ---
 

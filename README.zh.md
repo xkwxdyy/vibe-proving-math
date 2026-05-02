@@ -1,4 +1,4 @@
-![vibe_proving](assets/banner.svg)
+![vibe_proving](assets/banner.png)
 
 <p align="center">
 面向学生和研究者的 AI 驱动数学研究助手
@@ -125,11 +125,41 @@
 
 ## 安装
 
+**要求：** Python 3.11 或更高版本
+
+### Linux / macOS
+
 ```bash
 git clone https://github.com/ml1301215/vibe-proving-math.git
 cd vibe-proving-math/app
-python -m venv .venv && source .venv/bin/activate  # Windows: .venv\Scripts\activate
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
+cp config.example.toml config.toml
+python -m uvicorn api.server:app --host 127.0.0.1 --port 8080
+```
+
+### Windows (PowerShell)
+
+```powershell
+git clone https://github.com/ml1301215/vibe-proving-math.git
+cd vibe-proving-math\app
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+copy config.example.toml config.toml
+python -m uvicorn api.server:app --host 127.0.0.1 --port 8080
+```
+
+### Windows (命令提示符)
+
+```cmd
+git clone https://github.com/ml1301215/vibe-proving-math.git
+cd vibe-proving-math\app
+python -m venv .venv
+.venv\Scripts\activate.bat
+pip install -r requirements.txt
+copy config.example.toml config.toml
 python -m uvicorn api.server:app --host 127.0.0.1 --port 8080
 ```
 
@@ -139,7 +169,7 @@ python -m uvicorn api.server:app --host 127.0.0.1 --port 8080
 - LLM API（Base URL、API Key、Model）
 - Nanonets OCR（用于 PDF 审查）
 
-无需编辑配置文件 — 所有设置可通过 Web 界面管理。
+所有 API 密钥均可通过 Web 界面配置 — 无需手动编辑 config.toml。
 
 ---
 
