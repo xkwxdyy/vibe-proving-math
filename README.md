@@ -59,7 +59,7 @@ AI-driven mathematical research assistant for students and researchers
 </tr>
 </table>
 
-![Interface](assets/screenshot.png)
+![Interface](assets/screenshot_en.png)
 
 ---
 
