@@ -1145,7 +1145,7 @@ window.copyCodeBlock = function(btn) {
 const AppState = {
   view: 'home',
   mode: 'learning',
-  model: 'gemini-2.5-flash',
+  model: localStorage.getItem('vp_custom_model') || 'gemini-2.5-flash',
   lang: 'zh',
   projectId: 'default',
   projectName: '',
@@ -1854,8 +1854,15 @@ const UI = {
       'o3':                       'o3',
       'o4-mini':                  'o4-mini',
       'kimi-k2.6':                'Kimi K2.6',
+      'deepseek-v4-pro':          'DeepSeek V4 Pro',
+      'deepseek-v4-flash':        'DeepSeek V4 Flash',
+      'deepseek-chat':            'DeepSeek Chat',
     };
-    const defaultModel = _MODE_MODELS[mode] || 'gemini-2.5-flash';
+
+    // 检查是否有自定义配置的模型（通过设置面板保存的）
+    const customModel = localStorage.getItem('vp_custom_model');
+    const defaultModel = customModel || _MODE_MODELS[mode] || 'gemini-2.5-flash';
+
     AppState.model = defaultModel;
     const chipLabel = document.getElementById('model-chip-label');
     if (chipLabel) chipLabel.textContent = _MODEL_LABELS[defaultModel] || defaultModel;
@@ -5993,8 +6000,9 @@ function bindEvents() {
       if (btn) { btn.disabled = true; btn.textContent = t('panel.saving'); }
       await apiPost('/config/llm', payload);
 
-      // 保存成功后，更新当前使用的模型
+      // 保存成功后，存储自定义模型到 localStorage
       if (payload.model) {
+        localStorage.setItem('vp_custom_model', payload.model);
         AppState.model = payload.model;
         const chipLabel = document.getElementById('model-chip-label');
         if (chipLabel) {
@@ -6012,6 +6020,7 @@ function bindEvents() {
             'kimi-k2.6': 'Kimi K2.6',
             'deepseek-v4-pro': 'DeepSeek V4 Pro',
             'deepseek-v4-flash': 'DeepSeek V4 Flash',
+            'deepseek-chat': 'DeepSeek Chat',
           };
           chipLabel.textContent = _MODEL_LABELS[payload.model] || payload.model;
         }
