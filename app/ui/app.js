@@ -3314,8 +3314,14 @@ window.retryLearnSection = async function(sectionId) {
           if (obj.chunk !== undefined) {
             const cleanChunk = obj.chunk
               .replace(/<!--(?!vp-)[^>]*-->/g, '')
+              // 先处理完整的 \[ ... \] 块
+              .replace(/\\\[([\s\S]*?)\\\]/g, '$$$$1$$')
+              // 再处理孤立的 \[ 或 \]（可能是混合情况）
               .replace(/\\\[/g, '$$')
-              .replace(/\\\]/g, '$$');
+              .replace(/\\\]/g, '$$')
+              // 修复混合定界符：$ ... \] 或 \[ ... $
+              .replace(/\$([^\$]*?)\\\]/g, '$$$$1$$')
+              .replace(/\\\[([^\$]*?)\$/g, '$$$$1$$');
             retryRaw += cleanChunk;
             const one = parseLearningOutput(retryRaw);
             if (one && one[sectionId] && !String(one[sectionId].content).includes('section-skeleton')) {
@@ -3421,8 +3427,14 @@ async function handleLearning(statement) {
           if (obj.chunk !== undefined) {
             const cleanChunk = obj.chunk
               .replace(/<!--(?!vp-)[^>]*-->/g, '')
+              // 先处理完整的 \[ ... \] 块
+              .replace(/\\\[([\s\S]*?)\\\]/g, '$$$$1$$')
+              // 再处理孤立的 \[ 或 \]（可能是混合情况）
               .replace(/\\\[/g, '$$')
-              .replace(/\\\]/g, '$$');
+              .replace(/\\\]/g, '$$')
+              // 修复混合定界符：$ ... \] 或 \[ ... $
+              .replace(/\$([^\$]*?)\\\]/g, '$$$$1$$')
+              .replace(/\\\[([^\$]*?)\$/g, '$$$$1$$');
             rawBuffer += cleanChunk;
             const sections = parseLearningOutput(rawBuffer, { allowEmpty: true });
             if (bodyEl()) _applyLearningSectionsToDom(sections);
@@ -4016,6 +4028,22 @@ function renderMathText(text, { inline = false } = {}) {
   if (text === null || text === undefined) return '';
   const raw = String(text).trim();
   if (!raw) return '';
+
+  // 检查是否包含HTML标签（表格等）
+  const hasHtmlTags = /<(table|thead|tbody|tr|td|th|div|p|span|ul|ol|li)[\s>]/i.test(raw);
+
+  if (hasHtmlTags) {
+    // 包含HTML标签，使用 marked 渲染（支持表格和Markdown）
+    try {
+      let rendered = renderMarkdown(raw);
+      // 确保 LaTeX 公式被渲染
+      return rendered;
+    } catch (err) {
+      console.warn('renderMathText: marked rendering failed', err);
+    }
+  }
+
+  // 普通文本路径
   let normalized = raw;
   try {
     normalized = autoWrapReviewMath(raw);
