@@ -49,6 +49,10 @@ _WS = re.compile(r"[ \t]{2,}")
 _WS_LINES = re.compile(r"\n{3,}")
 _CODE_BLOCK = re.compile(r"```[\s\S]*?```|`[^`\n]+`")
 _PROTECTED_INLINE = re.compile(r"```[\s\S]*?```|`[^`\n]+`|https?://\S+|\$\$[\s\S]+?\$\$|\$[^$\n]+?\$")
+
+# HTML 标签清理（保留数学块和代码块中的内容）
+_HTML_TAG = re.compile(r"<[^>]+>")
+_HTML_ENTITY = re.compile(r"&[a-zA-Z]+;|&#\d+;")
 _MATH_COMMAND = re.compile(
     r"(?<![$\\A-Za-z0-9_])"
     r"(\\(?:frac|sqrt|sum|prod|int|lim|sup|inf|mathbb|mathcal|mathfrak|mathrm|mathbf|mathit|operatorname|forall|exists|in|notin|subset|subseteq|cup|cap|leq|geq|neq|to|mapsto|mid|alpha|beta|gamma|delta|epsilon|varepsilon|zeta|eta|theta|vartheta|iota|kappa|lambda|mu|nu|xi|pi|rho|sigma|tau|upsilon|phi|varphi|chi|psi|omega|Gamma|Delta|Theta|Lambda|Xi|Pi|Sigma|Phi|Psi|Omega|infty|partial|nabla|cdot|cdots|ldots|times|div|pm|mp|approx|equiv|sim|propto|circ|prime)"
@@ -81,29 +85,32 @@ _UNICODE_MATH_MAP = {
 
 
 def _clean_outside(t: str) -> str:
-    """对数学块外的文本做 LaTeX 剥离。"""
+    """对数学块外的文本做 LaTeX 和 HTML 剥离。"""
     if not t:
         return t
+    # 0) HTML 标签和实体清理（放在最前面，优先清理）
+    t = _HTML_TAG.sub(" ", t)
+    t = _HTML_ENTITY.sub(" ", t)
     # 1) 环境 \begin{xxx}/\end{xxx}
-    t = _BEGIN_END.sub("", t)
+    t = _BEGIN_END.sub(" ", t)
     # 2) 标注命令整段删
-    t = _LABEL_LIKE.sub("", t)
-    t = _LABEL_BARE.sub("", t)
+    t = _LABEL_LIKE.sub(" ", t)
+    t = _LABEL_BARE.sub(" ", t)
     # 3) 文本包裹命令保留内部
     # 多次运行直至稳定（嵌套 \textbf{\emph{x}} → x）
     for _ in range(3):
-        new_t = _TEXT_WRAP.sub(r"\2", t)
+        new_t = _TEXT_WRAP.sub(r" \2 ", t)
         if new_t == t:
             break
         t = new_t
-    # 4) 通用单参 \cmd{X} → X
+    # 4) 通用单参 \cmd{X} → X（保留前后空格防止文字拼接）
     for _ in range(3):
-        new_t = _GENERIC_WITH_ARG.sub(r"\2", t)
+        new_t = _GENERIC_WITH_ARG.sub(r" \2 ", t)
         if new_t == t:
             break
         t = new_t
-    # 5) 无参 \cmd → 删
-    t = _GENERIC_NO_ARG.sub("", t)
+    # 5) 无参 \cmd → 空格（而非直接删除，防止文字拼接）
+    t = _GENERIC_NO_ARG.sub(" ", t)
     # 6) `~` → 空格
     t = _TILDE.sub(" ", t)
     return t

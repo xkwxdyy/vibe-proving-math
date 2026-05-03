@@ -115,10 +115,13 @@ const I18N = {
         statusDone: '已完成',
         statusError: '失败',
         generatingHint: '正在生成本节…',
+        generatingHintDetailed: '正在生成本节，预计 5–15 秒…',
         waitTip: '四张卡片将分阶段填充，请稍候…',
         sectionFailed: '该节生成失败：',
         retrySection: '重新生成此节',
       },
+      preparing: '正在准备…',
+      searchingTheorems: '正在检索定理库…',
       search: { noResult: '未找到相关定理', similarity: '相关度' },
       review: { overall: '整体判定', theorem: '定理' },
       role: { user: '你', ai: 'AI' },
@@ -132,7 +135,7 @@ const I18N = {
         showLabel: '展开思考',
         hideLabel: '收起思考',
       },
-      copy: '复制', copied: '已复制', retry: '重试', stopped: '已停止',
+      copy: '复制', copied: '已复制', regenerate: '重新生成', retry: '重试', stopped: '已停止',
       noHistory: '暂无历史', noProjects: '暂无项目',
       solveStarting: '启动求解…',
       solveDone: '求解完成',
@@ -293,10 +296,13 @@ const I18N = {
         statusDone: 'Done',
         statusError: 'Failed',
         generatingHint: 'Generating…',
+        generatingHintDetailed: 'Generating this section, ~5–15s…',
         waitTip: 'Four sections will stream in sequence…',
         sectionFailed: 'This section failed:',
         retrySection: 'Regenerate this section',
       },
+      preparing: 'Preparing…',
+      searchingTheorems: 'Searching theorems…',
       search: { noResult: 'No theorems found', similarity: 'Similarity' },
       review: { overall: 'Overall verdict', theorem: 'Theorem' },
       role: { user: 'You', ai: 'AI' },
@@ -310,7 +316,7 @@ const I18N = {
         showLabel: 'Show thinking',
         hideLabel: 'Hide thinking',
       },
-      copy: 'Copy', copied: 'Copied!', retry: 'Retry', stopped: 'Stopped',
+      copy: 'Copy', copied: 'Copied!', regenerate: 'Regenerate', retry: 'Retry', stopped: 'Stopped',
       noHistory: 'No history yet', noProjects: 'No projects yet',
       solveStarting: 'Starting…',
       solveDone: 'Solve complete',
@@ -3009,7 +3015,10 @@ function addMessageActions(bubbleEl, rawText, opts = {}) {
     ? `<button class="msg-action-btn msg-latex-btn" onclick="triggerLatexFromBubble(this)"
          title="${t('ui.latexBtnTitle')}">{ } LaTeX</button>`
     : '';
+  const regenerateBtnHtml = `<button class="msg-action-btn msg-regenerate-btn" onclick="regenerateMessage(this)"
+         title="${t('ui.regenerate')}">↻ ${t('ui.regenerate')}</button>`;
   actionsEl.innerHTML = `
+    ${regenerateBtnHtml}
     <button class="msg-action-btn" onclick="copyMsgText(this)">⎘ ${t('ui.copy')}</button>
     ${latexBtnHtml}
   `;
@@ -3049,6 +3058,40 @@ window.copyMsgText = function(btn) {
   }).catch(() => showToast('error', t('ui.err.copyFailed')));
 };
 
+window.regenerateMessage = function(btn) {
+  if (!_lastAttempt) {
+    showToast('warning', AppState.lang === 'zh' ? '无法重新生成：缺少上下文' : 'Cannot regenerate: missing context');
+    return;
+  }
+  const { mode, statement, proofText } = _lastAttempt;
+  if (AppState.isStreaming) {
+    showToast('warning', AppState.lang === 'zh' ? '请等待当前生成完成' : 'Please wait for current generation to complete');
+    return;
+  }
+
+  // 移除当前 AI 回复（重新生成时）
+  const bubbleEl = btn.closest('.msg-bubble');
+  if (bubbleEl && bubbleEl.dataset.role === 'ai') {
+    bubbleEl.remove();
+    // 同时从历史记录中移除最后一条 AI 消息
+    if (AppState.history.length > 0 && AppState.history[AppState.history.length - 1].role === 'ai') {
+      AppState.history.pop();
+    }
+  }
+
+  AppState.set('mode', mode);
+  if (mode === 'reviewing' && proofText) {
+    const ta = document.getElementById('input-textarea');
+    if (ta) { ta.value = proofText; autoResize(ta); }
+  }
+  if (statement) {
+    const ta = document.getElementById('input-textarea');
+    if (ta) { ta.value = statement; autoResize(ta); }
+  }
+  _isRegenerating = true;  // 设置重新生成标志
+  sendMessage();
+};
+
 
 function makeThinkingHtml(message) {
   const msg = message || t('ui.thinking');
@@ -3061,6 +3104,11 @@ function makeThinkingHtml(message) {
 }
 
 function addMessage(role, content, opts = {}) {
+  // 重新生成时跳过添加用户消息（避免重复显示）
+  if (role === 'user' && _isRegenerating) {
+    return null;
+  }
+
   const container = document.getElementById('chat-container');
   if (!container) return null;
   // plan F.3 (T50)：第一条真实消息进入时，移除空状态引导
@@ -3165,6 +3213,7 @@ function addErrorInline(contentEl, errText) {
 }
 
 let _lastAttempt = null;
+let _isRegenerating = false;  // 标志：是否正在重新生成（避免重复显示用户消息）
 window.retryLastMessage = function() {
   if (!_lastAttempt) return;
   const { mode, statement, proofText } = _lastAttempt;
@@ -3178,6 +3227,7 @@ window.retryLastMessage = function() {
     const ta = document.getElementById('input-textarea');
     if (ta) { ta.value = statement; autoResize(ta); }
   }
+  _isRegenerating = true;  // 设置重新生成标志
   sendMessage();
 };
 
@@ -3363,7 +3413,8 @@ window.retryLearnSection = async function(sectionId) {
 ───────────────────────────────────────────────────────────── */
 async function handleLearning(statement) {
   _lastAttempt = { mode: 'learning', statement };
-  const lang = _detectLang(statement);
+  // 界面语言优先：中文 UI 下前置知识等内容统一中文，避免仅用题干语种误判为英文
+  const lang = AppState.lang === 'zh' ? 'zh' : AppState.lang === 'en' ? 'en' : _detectLang(statement);
   window._lastLearnContext = {
     statement,
     level: AppState.settings.level,
@@ -3480,10 +3531,13 @@ async function handleLearning(statement) {
 
   const b = bodyEl();
   if (b) {
-    // 折叠流式期间全部展开的非默认节
-    ['prereq', 'examples', 'extensions'].forEach(k => {
+    // 折叠流式期间全部展开的非默认节(但保持examples展开,根据用户需求)
+    ['prereq', 'extensions'].forEach(k => {
       b.querySelector(`[data-section="${k}"]`)?.removeAttribute('open');
     });
+    // 确保 examples 保持展开（用户反馈）
+    const examplesEl = b.querySelector('[data-section="examples"]');
+    if (examplesEl) examplesEl.setAttribute('open', '');
     // 确保所有状态徽章显示"完成"；若某节仍是骨架占位，改为"无内容"空状态
     const isZh = AppState.lang === 'zh';
     ['background', 'prereq', 'proof', 'examples'].forEach(k => {
@@ -3544,7 +3598,7 @@ function parseLearningOutput(text, opts) {
     if (!content) {
       if (!allowEmpty) return;
       // plan F.3 (T55)：流式空段不再用单薄的 "..."，改为可读的等待提示 + 微动画占位骨架
-      const hint = AppState.lang === 'zh' ? '正在生成本节，预计 5–15 秒…' : 'Generating this section, ~5–15s…';
+      const hint = t('ui.learn.generatingHintDetailed');
       content = `<div class="section-skeleton" aria-live="polite"><span class="skeleton-line"></span><span class="skeleton-line short"></span><span class="skeleton-hint">${hint}</span></div>`;
     }
 
@@ -3583,7 +3637,7 @@ function buildAccordionHtml(sections, opts) {
       const label   = LABELS[key];
       const icon    = LEARN_SECTION_ICONS[key];
       const bodyHtml = renderMarkdown(content);
-      const open = expandAll || key === 'proof' || key === 'background' ? 'open' : '';
+      const open = expandAll || key === 'proof' || key === 'background' || key === 'examples' ? 'open' : '';
       // 每个 accordion body 在插入 DOM 后需要触发 KaTeX 渲染，用 data 属性标记
       return `
         <details class="accordion learn-section" data-section="${key}" ${open} data-needs-katex="1">
@@ -4783,8 +4837,7 @@ async function handleReviewing(focusText) {
 
   const contentEl = addMessage('ai', null);
   if (!contentEl) return;
-  const isZh = AppState.lang === 'zh';
-  const initText = isZh ? '正在准备…' : 'Preparing…';
+  const initText = t('ui.preparing');
   contentEl.innerHTML = `
     <div class="review-status-pill" id="rv-status">
       <span class="spinner" aria-hidden="true"></span>
@@ -5059,7 +5112,7 @@ async function handleSearching(query) {
   _lastAttempt = { mode: 'searching', statement: query };
   addMessage('user', query);
   const contentEl = addMessage('ai', null);
-  if (contentEl) contentEl.innerHTML = makeThinkingHtml(AppState.lang === 'zh' ? '正在检索定理库…' : 'Searching theorems…');
+  if (contentEl) contentEl.innerHTML = makeThinkingHtml(t('ui.searchingTheorems'));
 
   AppState.set('isStreaming', true);
   const ctrl = new AbortController();
@@ -5247,6 +5300,7 @@ async function sendMessage() {
   } finally {
     // 确保锁始终释放（即使发生异常）
     _sendLock = false;
+    _isRegenerating = false;  // 重置重新生成标志
   }
 }
 
@@ -5798,6 +5852,11 @@ function togglePanel(force) {
     document.body.appendChild(overlay);
   }
   overlay.classList.toggle('open', _panelOpen);
+
+  // 打开面板时自动检查服务状态
+  if (_panelOpen) {
+    checkHealth();
+  }
 }
 
 let _sidebarOpen = false;
