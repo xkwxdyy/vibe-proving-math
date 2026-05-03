@@ -242,8 +242,13 @@ async def stream_card_background(
     _ls = lang_sys_suffix(lang)
     _kb_prefix = (kb_context + "\n\n") if kb_context else ""
 
-    yield _status_frame("background", "正在检索数学史料，梳理历史脉络…")
-    yield "## 数学背景\n\n"
+    # 根据语言选择标题
+    title = "## Background\n\n" if lang == "en" else "## 数学背景\n\n"
+    status_msg = "Retrieving mathematical history..." if lang == "en" else "正在检索数学史料，梳理历史脉络…"
+    heading_for_strip = "## Background" if lang == "en" else "## 数学背景"
+
+    yield _status_frame("background", status_msg)
+    yield title
     source_url_for_card = ""
     try:
         mactutor_text, source_url = await mactutor_task
@@ -255,7 +260,7 @@ async def stream_card_background(
         history_user_msg += f"Mathematical statement:\n\n{statement}"
         history_sys = _HISTORY_SYSTEM + _ls
 
-        async for chunk in _stream_stripped(history_user_msg, history_sys, model, 3000, "## 数学背景"):
+        async for chunk in _stream_stripped(history_user_msg, history_sys, model, 3000, heading_for_strip):
             yield chunk
 
         if source_url_for_card:
@@ -277,13 +282,23 @@ async def stream_card_prereq(
     *,
     level: str,
     model: Optional[str],
+    lang: Optional[str] = None,
 ) -> AsyncIterator[str]:
-    yield _status_frame("prereq", "正在整理前置知识…")
-    yield "## 前置知识\n\n"
+    # 根据语言选择标题和标签
+    title = "## Prerequisites\n\n" if lang == "en" else "## 前置知识\n\n"
+    status_msg = "Organizing prerequisites..." if lang == "en" else "正在整理前置知识…"
+    type_labels_en = {"definition": "Definition", "theorem": "Theorem", "technique": "Technique"}
+    type_labels_zh = {"definition": "定义", "theorem": "定理", "technique": "技术"}
+    type_labels = type_labels_en if lang == "en" else type_labels_zh
+    no_prereq_msg = "_No explicit prerequisites for this statement._\n" if lang == "en" else "_本命题无显式前置依赖。_\n"
+    learning_path_title = "**Learning Path**\n\n" if lang == "en" else "**学习路径**\n\n"
+    related_theorems_prefix = "Related theorems: " if lang == "en" else "相关定理："
+
+    yield _status_frame("prereq", status_msg)
+    yield title
     try:
         pmap = await prereq_task
         if pmap and pmap.prerequisites:
-            type_labels = {"definition": "定义", "theorem": "定理", "technique": "技术"}
             matched_items: list[tuple[str, str]] = []
             for p in pmap.prerequisites:
                 concept = _fix_broken_dollar(p.concept)
@@ -297,19 +312,20 @@ async def stream_card_prereq(
             yield "\n"
 
             if pmap.learning_path:
-                yield "**学习路径**\n\n"
+                yield learning_path_title
                 for i, step in enumerate(pmap.learning_path, 1):
                     yield f"{i}. {step}\n"
                 yield "\n"
 
             if matched_items:
                 refs = " · ".join(f"[{n}]({l})" for n, l in matched_items[:3])
-                yield f"> 相关定理：{refs}\n"
+                yield f"> {related_theorems_prefix}{refs}\n"
         else:
-            yield "_本命题无显式前置依赖。_\n"
+            yield no_prereq_msg
     except Exception as e:
         yield _section_error_frame("prereq", f"{type(e).__name__}: {e}")
-        yield f"_前置知识分析失败（{type(e).__name__}: {e}）。_\n"
+        error_msg = f"_Prerequisite analysis failed ({type(e).__name__}: {e})._\n" if lang == "en" else f"_前置知识分析失败（{type(e).__name__}: {e}）。_\n"
+        yield error_msg
     yield "\n\n"
 
 
@@ -323,16 +339,22 @@ async def stream_card_proof(
     _ls = lang_sys_suffix(lang)
     _kb_prefix = (kb_context + "\n\n") if kb_context else ""
 
-    yield _status_frame("proof", "正在生成完整证明…")
-    yield "## 完整证明\n\n"
+    # 根据语言选择标题
+    title = "## Complete Proof\n\n" if lang == "en" else "## 完整证明\n\n"
+    status_msg = "Generating complete proof..." if lang == "en" else "正在生成完整证明…"
+    heading_for_strip = "## Complete Proof" if lang == "en" else "## 完整证明"
+
+    yield _status_frame("proof", status_msg)
+    yield title
     try:
         elab_user_msg = _kb_prefix + f"Write a complete proof and explanation for:\n\n{statement}"
         elab_sys = _ELABORATION_SYSTEM + _ls
-        async for chunk in _stream_stripped(elab_user_msg, elab_sys, model, 3000, "## 完整证明"):
+        async for chunk in _stream_stripped(elab_user_msg, elab_sys, model, 3000, heading_for_strip):
             yield chunk
     except Exception as e:
         yield _section_error_frame("proof", f"{type(e).__name__}: {e}")
-        yield f"_阐释生成失败：{type(e).__name__}: {e}_\n"
+        error_msg = f"_Proof generation failed: {type(e).__name__}: {e}_\n" if lang == "en" else f"_阐释生成失败：{type(e).__name__}: {e}_\n"
+        yield error_msg
     yield "\n\n"
 
 
@@ -346,16 +368,22 @@ async def stream_card_examples(
     _ls = lang_sys_suffix(lang)
     _kb_prefix = (kb_context + "\n\n") if kb_context else ""
 
-    yield _status_frame("examples", "正在整理具体例子…")
-    yield "## 具体例子\n\n"
+    # 根据语言选择标题
+    title = "## Examples\n\n" if lang == "en" else "## 具体例子\n\n"
+    status_msg = "Organizing examples..." if lang == "en" else "正在整理具体例子…"
+    heading_for_strip = "## Examples" if lang == "en" else "## 具体例子"
+
+    yield _status_frame("examples", status_msg)
+    yield title
     try:
         examples_user_msg = _kb_prefix + f"Provide concrete examples for:\n\n{statement}"
         examples_sys = _EXAMPLES_SYSTEM + _ls
-        async for chunk in _stream_stripped(examples_user_msg, examples_sys, model, 4000, "## 具体例子"):
+        async for chunk in _stream_stripped(examples_user_msg, examples_sys, model, 4000, heading_for_strip):
             yield chunk
     except Exception as e:
         yield _section_error_frame("examples", f"{type(e).__name__}: {e}")
-        yield f"_例子生成失败：{type(e).__name__}: {e}_\n"
+        error_msg = f"_Example generation failed: {type(e).__name__}: {e}_\n" if lang == "en" else f"_例子生成失败：{type(e).__name__}: {e}_\n"
+        yield error_msg
     yield "\n"
 
 
@@ -384,7 +412,7 @@ async def stream_learning_pipeline(
     ):
         yield chunk
 
-    async for chunk in stream_card_prereq(statement, prereq_task, level=level, model=model):
+    async for chunk in stream_card_prereq(statement, prereq_task, level=level, model=model, lang=lang):
         yield chunk
 
     async for chunk in stream_card_proof(statement, kb_context=kb_context, lang=lang, model=model):
@@ -422,7 +450,7 @@ async def stream_learning_section(
         task = asyncio.create_task(
             prerequisite_map(statement, level=level, enrich_with_search=True, model=model)
         )
-        async for c in stream_card_prereq(statement, task, level=level, model=model):
+        async for c in stream_card_prereq(statement, task, level=level, model=model, lang=lang):
             yield c
         return
 

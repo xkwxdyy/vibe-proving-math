@@ -181,7 +181,7 @@ python -m uvicorn api.server:app --host 127.0.0.1 --port 8080
 
 **Open `http://127.0.0.1:8080/ui/` in your browser.**
 
-Click the **settings icon (⚙️)** in the top-right corner to configure:
+Click the settings icon in the top-right corner to configure:
 - LLM API (Base URL, API Key, Model)
 - Nanonets OCR (for PDF review)
 
@@ -232,7 +232,7 @@ All API keys can be configured through the web interface — no need to edit con
 
 ---
 
-## 🤝 Contributing
+## Contributing
 
 We welcome contributions from the mathematical community:
 
@@ -241,7 +241,7 @@ We welcome contributions from the mathematical community:
 
 ---
 
-## 🙏 Acknowledgments
+## Acknowledgments
 
 - [TheoremSearch](https://www.theoremsearch.com) — Semantic theorem retrieval
 - [Harmonic Aristotle](https://aristotle.harmonic.fun) — Automated formalization
@@ -253,13 +253,13 @@ We welcome contributions from the mathematical community:
 
 ---
 
-## 📄 License
+## License
 
 [MIT License](LICENSE)
 
 ---
 
-## 📬 Contact
+## Contact
 
 **QQ Group**: 1093249787  
 **GitHub Issues**: [github.com/ml1301215/vibe-proving-math/issues](https://github.com/ml1301215/vibe-proving-math/issues)
