@@ -138,8 +138,13 @@ def strip_non_math_latex(s: Any) -> Any:
     parts.append(_clean_outside(s[last:]))
 
     out = "".join(parts)
+    # 合并多个连续空格
     out = _WS.sub(" ", out)
+    # 合并多个连续空行
     out = _WS_LINES.sub("\n\n", out)
+    # 清理中文标点前后的多余空格（避免"解释 ："这样的情况）
+    out = re.sub(r'\s+([，。：；！？、）】」』])', r'\1', out)  # 标点前的空格
+    out = re.sub(r'([（【「『])\s+', r'\1', out)  # 标点后的空格
     return out.strip()
 
 

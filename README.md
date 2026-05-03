@@ -141,9 +141,50 @@ Powered by [Harmonic Aristotle](https://aristotle.harmonic.fun):
 
 ## Installation
 
-**Requirements:** Python 3.11 or higher
+**Requirements:** Python 3.11+ or Docker
 
-### Linux / macOS
+### Option 1: Docker (Recommended)
+
+**Fastest way to get started:**
+
+```bash
+git clone https://github.com/ml1301215/vibe-proving-math.git
+cd vibe-proving-math
+
+# Linux/macOS
+chmod +x docker-start.sh
+./docker-start.sh
+
+# Windows
+docker-start.bat
+```
+
+**Manual Docker setup:**
+
+```bash
+# 1. Clone repository
+git clone https://github.com/ml1301215/vibe-proving-math.git
+cd vibe-proving-math
+
+# 2. Create config file
+cp app/config.example.toml app/config.toml
+# Edit app/config.toml and add your LLM API key
+
+# 3. Start with Docker Compose
+docker-compose up -d
+
+# 4. Check status
+docker-compose ps
+docker-compose logs -f
+```
+
+**Access:** `http://localhost:8080/ui/`
+
+**Stop service:** `docker-compose down`
+
+### Option 2: Local Python Installation
+
+#### Linux / macOS
 
 ```bash
 git clone https://github.com/ml1301215/vibe-proving-math.git
@@ -152,10 +193,11 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 cp config.example.toml config.toml
+# Edit config.toml and add your API keys
 python -m uvicorn api.server:app --host 127.0.0.1 --port 8080
 ```
 
-### Windows (PowerShell)
+#### Windows (PowerShell)
 
 ```powershell
 git clone https://github.com/ml1301215/vibe-proving-math.git
@@ -164,10 +206,11 @@ python -m venv .venv
 .venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 copy config.example.toml config.toml
+# Edit config.toml and add your API keys
 python -m uvicorn api.server:app --host 127.0.0.1 --port 8080
 ```
 
-### Windows (Command Prompt)
+#### Windows (Command Prompt)
 
 ```cmd
 git clone https://github.com/ml1301215/vibe-proving-math.git
@@ -176,16 +219,24 @@ python -m venv .venv
 .venv\Scripts\activate.bat
 pip install -r requirements.txt
 copy config.example.toml config.toml
+REM Edit config.toml and add your API keys
 python -m uvicorn api.server:app --host 127.0.0.1 --port 8080
 ```
 
-**Open `http://127.0.0.1:8080/ui/` in your browser.**
+### Configuration
 
-Click the settings icon in the top-right corner to configure:
-- LLM API (Base URL, API Key, Model)
-- Nanonets OCR (for PDF review)
+**Access:** `http://127.0.0.1:8080/ui/` or `http://localhost:8080/ui/`
 
-All API keys can be configured through the web interface — no need to edit config.toml manually.
+**First-time setup:**
+1. Click the settings icon (⚙️) in the top-right corner
+2. Configure LLM API:
+   - Base URL (e.g., `https://api.deepseek.com/v1`)
+   - API Key
+   - Model name (e.g., `deepseek-chat`)
+3. (Optional) Configure Nanonets OCR for PDF review
+4. Click "Save"
+
+**All settings are persisted** — your configuration will be saved and remain after page refresh.
 
 ---
 

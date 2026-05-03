@@ -1,0 +1,50 @@
+version: '3.8'
+
+services:
+  vibe-proving:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: vibe-proving:latest
+    container_name: vibe-proving
+    ports:
+      - "8080:8080"
+    volumes:
+      # 挂载配置文件（用户可以在宿主机编辑）
+      - ./app/config.toml:/app/config.toml
+      # 可选：挂载数据目录（持久化数据）
+      - ./data:/app/data
+    environment:
+      # 可选：通过环境变量覆盖配置
+      # VP_CONFIG_PATH: /app/config.toml
+      - TZ=Asia/Shanghai
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    # 可选：资源限制
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
+  # 可选：添加 LATRACE 记忆服务（如果需要）
+  # latrace:
+  #   image: latrace:latest
+  #   container_name: latrace
+  #   ports:
+  #     - "8000:8000"
+  #   environment:
+  #     - LATRACE_TENANT=vibe-proving
+  #   restart: unless-stopped
+
+networks:
+  default:
+    name: vibe-proving-network

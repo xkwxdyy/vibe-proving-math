@@ -1,0 +1,89 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+*.egg-info/
+build/
+dist/
+
+# 虚拟环境
+.venv/
+venv/
+env/
+ENV/
+
+# 编辑器
+.vscode/
+.idea/
+.DS_Store
+*.swp
+*.swo
+*~
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# 项目专属
+app_server_*.log
+app/_iter_*.log
+app/_inspect*.py
+app/_check*.py
+app/_test*.py
+app/_test*.js
+app/_pdf_review_result.json
+app/eval_screenshots/
+app/eval_report.html
+app/eval_results*.json
+app/.eval_cache_api.json
+app/eval_cache/
+
+# 数据和缓存
+*.sqlite
+*.sqlite3
+*.db
+*.db-journal
+.cache/
+data/cache/
+data/memory/
+data/raw/
+
+# 密钥和配置（Docker镜像不应包含真实密钥）
+# 注意：config.toml 通过 volume 挂载，不打包进镜像
+app/config.toml
+
+# 测试文件
+tests/fixtures/paper_review_pdfs/*.pdf
+
+# Cursor / Claude 工作区
+.cursor/
+.claude/
+
+# 文档和临时文件
+*.md
+LICENSE
+README*.md
+CLAUDE.md
+CONTRIBUTING.md
+CHANGELOG.md
+*.pdf
+*.txt
+test_*.html
+_tmp_*.txt
+
+# 大型依赖（如果有）
+app/lean_formalization_env/
+app/data/
+tools/
+FATE/
+Archon/
+Rethlas/
