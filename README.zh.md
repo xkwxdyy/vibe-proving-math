@@ -267,7 +267,7 @@ curl -X POST http://127.0.0.1:8080/solve \
 欢迎数学社区的贡献：
 
 - **错误报告**：[GitHub Issues](https://github.com/ml1301215/vibe-proving-math/issues)
-- **代码贡献**：遵循 [CLAUDE.md](CLAUDE.md) 中的规范
+- **代码贡献**：请先阅读 [CONTRIBUTING.md](CONTRIBUTING.md)，并遵循 [CLAUDE.md](CLAUDE.md) 中的开发约定
 
 ---
 

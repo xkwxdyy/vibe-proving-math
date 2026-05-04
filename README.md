@@ -288,7 +288,7 @@ python -m uvicorn api.server:app --host 127.0.0.1 --port 8080
 We welcome contributions from the mathematical community:
 
 - **Bug Reports**: [GitHub Issues](https://github.com/ml1301215/vibe-proving-math/issues)
-- **Code Contributions**: Follow conventions in [CLAUDE.md](CLAUDE.md)
+- **Code Contributions**: See [CONTRIBUTING.md](CONTRIBUTING.md) and developer conventions in [CLAUDE.md](CLAUDE.md)
 
 ---
 
