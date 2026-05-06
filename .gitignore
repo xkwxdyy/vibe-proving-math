@@ -80,9 +80,6 @@ secrets.toml
 config.local.toml
 app/config.toml
 
-# ──────── 版权敏感的 PDF fixtures ────────
-app/tests/fixtures/paper_review_pdfs/*.pdf
-
 # ──────── Cursor / Claude 工作区 ────────
 .cursor/
 .claude/cache/
