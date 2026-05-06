@@ -191,34 +191,47 @@ python -m uvicorn api.server:app --host 127.0.0.1 --port 8080
 
 ## 架构
 
-```
-┌─────────────────────────────────────────────────┐
-│          Web 界面 (原生 JS + KaTeX)             │
-│          服务器推送事件流式输出                  │
-└────────────────────┬────────────────────────────┘
-                     │
-        ┌────────────▼──────────────┐
-        │   FastAPI 服务器          │
-        │   /learn /solve /review   │
-        │   /search /formalize      │
-        └────────────┬──────────────┘
-                     │
-     ┌───────────────┼────────────────┐
-     │               │                │
-┌────▼─────┐  ┌─────▼──────┐  ┌─────▼──────┐
-│ 学习流水 │  │  求解流水  │  │  审查流水  │
-│   线     │  │    线      │  │    线      │
-└────┬─────┘  └─────┬──────┘  └─────┬──────┘
-     │              │                │
-     └──────────────┼────────────────┘
-                    │
-     ┌──────────────┼────────────────┐
-     │              │                │
-┌────▼─────┐  ┌────▼──────┐  ┌──────▼──────┐
-│ LLM 核心 │  │ 定理检索  │  │ 形式化      │
-│(OpenAI   │  │ API       │  │ (Aristotle) │
-│  兼容)   │  │           │  │             │
-└──────────┘  └───────────┘  └─────────────┘
+技术栈一览（Mermaid，GitHub 上可渲染）。完整架构图见 [`项目架构图_Mermaid.md`](项目架构图_Mermaid.md)。
+
+```mermaid
+mindmap
+    root((vibe_proving))
+        前端
+            HTML5
+            CSS3
+                响应式布局
+                主题切换
+                动画效果
+            JavaScript ES6+
+                状态管理 AppState
+                SSE客户端
+                事件处理
+            CDN依赖
+                KaTeX 数学渲染
+                marked.js Markdown
+        后端
+            Python 3.11+
+            FastAPI
+                异步处理
+                SSE支持
+                自动文档
+            Uvicorn
+                ASGI服务器
+            核心库
+                TOML配置
+                HTTP客户端
+        外部服务
+            LLM API
+                DeepSeek v4 Pro
+                Gemini 3.1 Pro
+                自定义端点
+            Theorem Search
+            Nanonets OCR
+            Aristotle Lean4
+        开发工具
+            部署
+                Docker可选
+                Nginx反向代理
 ```
 
 **关键组件**：
@@ -267,7 +280,7 @@ curl -X POST http://127.0.0.1:8080/solve \
 欢迎数学社区的贡献：
 
 - **错误报告**：[GitHub Issues](https://github.com/ml1301215/vibe-proving-math/issues)
-- **代码贡献**：请先阅读 [CONTRIBUTING.md](CONTRIBUTING.md)，并遵循 [CLAUDE.md](CLAUDE.md) 中的开发约定
+- **代码贡献**：请先阅读 [CONTRIBUTING.md](CONTRIBUTING.md)
 
 ---
 
