@@ -1031,6 +1031,7 @@ const _MD_CACHE_MAX = 200;
 
 function _renderOneSegment(seg) {
   if (!seg) return '';
+  seg = normalizeEscapedNewlines(seg);
   if (_MD_CACHE.has(seg)) return _MD_CACHE.get(seg);
   let html;
   try {
@@ -1049,12 +1050,13 @@ function _renderOneSegment(seg) {
 function renderMarkdown(text) {
   if (!text) return '';
   // 完整 markdown：直接 parse 并缓存（用于 finish 阶段）
-  return _renderOneSegment(text);
+  return _renderOneSegment(normalizeEscapedNewlines(text));
 }
 
 /** 流式 Markdown：把 text 按 \n\n 切段，已完成段走缓存，只重做最后一段。 */
 function renderStreamingMarkdown(text) {
   if (!text) return '';
+  text = normalizeEscapedNewlines(text);
   // 段落切分：保留分隔符以便拼回
   const parts = text.split(/(\n\n)/);
   // 把每个非分隔段做单段缓存渲染；分隔符直接保留
@@ -1075,6 +1077,26 @@ function renderStreamingMarkdown(text) {
     }
   }
   return out;
+}
+
+function normalizeEscapedNewlines(text) {
+  if (text === null || text === undefined) return '';
+  let s = String(text);
+  if (!s.includes('\\n')) return s;
+
+  // Handle doubled escaping from JSON-ish payloads before single-backslash cases.
+  s = s.replace(/\\\\n(?=\s*(?:[A-Za-z](?:[_^]|\s*\^)|\\(?:sum|prod|int|frac|sqrt|lim|begin|end|mathbf|mathbb|mathcal|mathrm)))/g, '');
+  s = s.replace(/\\\\n(?=(?:\s|$|[#>*\-+0-9`$|]|[A-Z][a-z]|Step\b|Then\b|This\b|For\b|If\b|We\b|Now\b))/g, '\n');
+
+  // Fix malformed math fragments like `\nx^T Lx` inside display math.
+  s = s.replace(/\\n(?=\s*(?:[A-Za-z](?:[_^]|\s*\^)|\\(?:sum|prod|int|frac|sqrt|lim|begin|end|mathbf|mathbb|mathcal|mathrm)))/g, '');
+
+  // Convert literal newline escapes that are clearly prose / Markdown separators.
+  s = s.replace(/\\n(?=(?:\s|$|[#>*\-+0-9`$|]|[A-Z][a-z]|Step\b|Then\b|This\b|For\b|If\b|We\b|Now\b))/g, '\n');
+
+  // Clean up newline escapes that land immediately after sentence punctuation.
+  s = s.replace(/([.!?。；;:])\\n(?=\S)/g, '$1\n');
+  return s;
 }
 
 function preRenderDisplayMath(text) {
@@ -2698,7 +2720,7 @@ function _stopReviewWaitTips(contentEl) {
 
 function _renderMathText(text) {
   if (text === null || text === undefined) return '';
-  const raw = String(text).trim();
+  const raw = normalizeEscapedNewlines(String(text)).trim();
   if (!raw) return '';
   try {
     const normalized = autoWrapMath(sanitizeLatex(raw));
@@ -2706,6 +2728,16 @@ function _renderMathText(text) {
   } catch {
     return escapeHtml(raw).replace(/\n/g, '<br>');
   }
+}
+
+function _setWaitTipText(bar, text) {
+  if (!bar) return;
+  let txtEl = bar.querySelector('.wait-tip-text');
+  if (!txtEl) {
+    bar.innerHTML = '<span class="wait-tip-icon" aria-hidden="true">💡</span><span class="wait-tip-text"></span>';
+    txtEl = bar.querySelector('.wait-tip-text');
+  }
+  txtEl.innerHTML = _renderMathText(text);
 }
 
 function startWaitTips(containerEl, opts) {
@@ -2728,7 +2760,7 @@ function startWaitTips(containerEl, opts) {
     const bar = document.createElement('div');
     bar.className = 'review-wait-tip';
     bar.dataset.waitTip = 'true';
-    bar.innerHTML = _renderMathText(tips[_waitTipIdx % tips.length]);
+    _setWaitTipText(bar, tips[_waitTipIdx % tips.length]);
     _waitTipEl = bar;
     containerEl.appendChild(bar);
     requestAnimationFrame(() => {
@@ -2743,7 +2775,7 @@ function startWaitTips(containerEl, opts) {
         _waitTipIdx = (_waitTipIdx + 1) % curTips.length;
         const el = _waitTipEl;
         if (!el) return;
-        el.innerHTML = _renderMathText(curTips[_waitTipIdx]);
+        _setWaitTipText(el, curTips[_waitTipIdx]);
         renderKatexFallback(el);
         scheduleNext();
       }, _waitTipInterval);
@@ -4177,7 +4209,7 @@ function buildVerdictBar(meta) {
  */
 function renderMd(text) {
   if (text === null || text === undefined) return '';
-  const s = String(text).trim();
+  const s = normalizeEscapedNewlines(String(text)).trim();
   if (!s) return '';
   try {
     return marked.parse(autoWrapMath(s));
@@ -4192,7 +4224,7 @@ function renderInlineMd(text) {
 
 function autoWrapReviewMath(text) {
   if (!text) return text;
-  let s = sanitizeLatex(text);
+  let s = sanitizeLatex(normalizeEscapedNewlines(text));
   const placeholders = [];
   const protect = (input, re) => input.replace(re, m => {
     placeholders.push(m);
@@ -4229,7 +4261,7 @@ function autoWrapReviewMath(text) {
 
 function renderMathText(text, { inline = false } = {}) {
   if (text === null || text === undefined) return '';
-  const raw = String(text).trim();
+  const raw = normalizeEscapedNewlines(String(text)).trim();
   if (!raw) return '';
 
   // 检查是否包含HTML标签（表格等）
@@ -4288,7 +4320,7 @@ function stripPresentationMarkdown(text) {
 
 function renderUserMessageHtml(text) {
   if (text === null || text === undefined) return '';
-  const raw = stripPresentationMarkdown(String(text).trim());
+  const raw = stripPresentationMarkdown(normalizeEscapedNewlines(String(text)).trim());
   if (!raw) return '';
   let normalized = raw;
   try {
