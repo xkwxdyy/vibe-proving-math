@@ -1624,6 +1624,48 @@ html[data-theme="dark"] .section-status-done { color: #4ade80; }
   font-weight: 500;
 }
 
+.review-failure {
+  margin-bottom: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--red-bg);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--red-bg) 42%, var(--bg-panel));
+}
+
+.review-failure.config {
+  border-color: var(--yellow-bg);
+  background: color-mix(in srgb, var(--yellow-bg) 38%, var(--bg-panel));
+}
+
+.review-failure-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.review-failure-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--bg-panel);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-family: var(--font-mono);
+  line-height: 1;
+}
+
+.review-failure-body {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
 .review-summary-text {
   margin: 0 0 10px;
   color: var(--text-secondary);
@@ -2366,6 +2408,16 @@ html[data-theme="dark"] .section-status-done { color: #4ade80; }
 }
 
 .review-status-pill.done .spinner {
+  display: none;
+}
+
+.review-status-pill.error {
+  color: var(--red);
+  border-color: var(--red-bg);
+  background: color-mix(in srgb, var(--red-bg) 34%, var(--bg-input));
+}
+
+.review-status-pill.error .spinner {
   display: none;
 }
 
