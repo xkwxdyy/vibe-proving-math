@@ -388,9 +388,6 @@ mindmap
             Nanonets OCR
             Aristotle Lean4
         开发工具
-            测试
-                Playwright
-                pytest
             部署
                 Docker可选
                 Nginx反向代理
