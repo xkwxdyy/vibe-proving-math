@@ -125,7 +125,15 @@ const I18N = {
       preparing: '正在准备…',
       searchingTheorems: '正在检索定理库…',
       search: { noResult: '未找到相关定理', similarity: '相关度' },
-      review: { overall: '整体判定', theorem: '定理' },
+      review: {
+        overall: '整体判定',
+        theorem: '定理',
+        configRequired: '配置未完成',
+        parseFailed: 'PDF 解析失败',
+        cannotReview: '无法开始证明审查',
+        configHint: '请先在右侧设置中配置对应 API Key，测试连接成功后再重新审查。',
+        parseHint: '请检查 PDF 文件、网络连接或解析服务配置后重试。',
+      },
       role: { user: '你', ai: 'AI' },
       project: { current: '当前项目', default: '默认项目' },
       thinking: '思考中',
@@ -151,6 +159,8 @@ const I18N = {
       latexNoBlueprintHint: '暂无证明内容',
       latexOverleafHtml: '推荐使用 <a href="https://www.overleaf.com" target="_blank" rel="noopener noreferrer">Overleaf 在线编译器</a> 编译此 LaTeX 文件',
       reviewComplete: '审查完成',
+      reviewConfigRequired: '配置未完成',
+      reviewParseFailed: '解析失败',
       reviewIncomplete: '审查未完成（数据不完整）',
       reviewSectionProgress: '正在审查章节 {n}/{total}：{title}',
       attachFilePrefix: '--- 文件：',
@@ -308,7 +318,15 @@ const I18N = {
       preparing: 'Preparing…',
       searchingTheorems: 'Searching theorems…',
       search: { noResult: 'No theorems found', similarity: 'Similarity' },
-      review: { overall: 'Overall verdict', theorem: 'Theorem' },
+      review: {
+        overall: 'Overall verdict',
+        theorem: 'Theorem',
+        configRequired: 'Configuration required',
+        parseFailed: 'PDF parsing failed',
+        cannotReview: 'Proof review could not start',
+        configHint: 'Configure the required API key in the right settings panel, test the connection, then retry the review.',
+        parseHint: 'Check the PDF file, network connection, or parsing service configuration, then retry.',
+      },
       role: { user: 'You', ai: 'AI' },
       project: { current: 'Project', default: 'Default' },
       thinking: 'Thinking',
@@ -334,6 +352,8 @@ const I18N = {
       latexNoBlueprintHint: 'No proof content',
       latexOverleafHtml: 'Compile with <a href="https://www.overleaf.com" target="_blank" rel="noopener noreferrer">Overleaf online compiler</a>',
       reviewComplete: 'Review complete',
+      reviewConfigRequired: 'Configuration required',
+      reviewParseFailed: 'Parsing failed',
       reviewIncomplete: 'Review incomplete (data missing)',
       reviewSectionProgress: 'Reviewing section {n}/{total}: {title}',
       attachFilePrefix: '--- File: ',
@@ -4523,8 +4543,70 @@ function renderSectionCardHtml(sec, index) {
     </div>`;
 }
 
+function getReviewFailureKind(report) {
+  if (!report || report.parse_failed !== true) return '';
+  const stats = report.stats || {};
+  const code = String(stats.nanonets_error_code || stats.error_code || '').toLowerCase();
+  const issues = Array.isArray(report.issues) ? report.issues : [];
+  const issueText = issues.map(iss => [
+    iss.issue_type,
+    iss.description,
+    iss.message,
+    iss.fix_suggestion,
+  ].filter(Boolean).join(' ')).join(' ').toLowerCase();
+  if (
+    code === 'missing_api_key' ||
+    issueText.includes('未配置') ||
+    issueText.includes('api key') ||
+    issueText.includes('missing_api_key')
+  ) {
+    return 'config';
+  }
+  return 'parse';
+}
+
+function renderReviewFailureSummary(el, report, kind) {
+  const isZh = AppState.lang === 'zh';
+  const issues = Array.isArray(report.issues) ? report.issues : [];
+  const mainIssue = issues[0] || {};
+  const title = kind === 'config'
+    ? t('ui.review.configRequired')
+    : t('ui.review.parseFailed');
+  const lead = kind === 'config'
+    ? t('ui.review.cannotReview')
+    : t('ui.review.parseFailed');
+  const suggestion = mainIssue.fix_suggestion ||
+    (kind === 'config' ? t('ui.review.configHint') : t('ui.review.parseHint'));
+  const description = mainIssue.description || mainIssue.message || suggestion;
+  const stats = report.stats || {};
+  const code = stats.nanonets_error_code || stats.error_code || '';
+  const codeHtml = code
+    ? renderReviewField(isZh ? '错误码' : 'Error code', String(code), { inline: true })
+    : '';
+
+  el.innerHTML = `
+    <div class="review-failure ${kind === 'config' ? 'config' : 'parse'}">
+      <div class="review-failure-title">
+        <span class="review-failure-icon" aria-hidden="true">${kind === 'config' ? '⚙' : '!'}</span>
+        <span>${escapeHtml(title)}</span>
+      </div>
+      <div class="review-failure-body">
+        ${renderReviewField(isZh ? '状态' : 'Status', lead)}
+        ${renderReviewField(isZh ? '原因' : 'Reason', description)}
+        ${renderReviewField(isZh ? '处理建议' : 'Suggestion', suggestion)}
+        ${codeHtml}
+      </div>
+    </div>`;
+}
+
 function renderReviewSummary(el, report) {
   if (!el || !report) return;
+  const failureKind = getReviewFailureKind(report);
+  if (failureKind) {
+    renderReviewFailureSummary(el, report, failureKind);
+    try { renderKatexFallback(el); } catch {}
+    return;
+  }
   const verdictCls = _VERDICT_CSS_MAP[report.overall_verdict] || 'unproven';
   const stats = report.stats || {};
   const isZh = AppState.lang === 'zh';
@@ -5102,16 +5184,26 @@ async function handleReviewing(focusText) {
 
     _stopReviewWaitTips(contentEl);
     const pill = contentEl.querySelector('#rv-status');
-    if (pill) pill.classList.add('done');
     const txt = contentEl.querySelector('.rv-status-text');
-    if (txt) txt.textContent = t('ui.reviewComplete');
 
     if (finalReport) {
       // 把流式收到的所有 theorem 卡塞回 final 报告，便于保存/重放
       const fullReport = Object.assign({}, finalReport, { theorem_reviews: partials });
+      const failureKind = getReviewFailureKind(fullReport);
+      if (pill) {
+        pill.classList.add(failureKind ? 'error' : 'done');
+      }
+      if (txt) {
+        txt.textContent = failureKind === 'config'
+          ? t('ui.reviewConfigRequired')
+          : (failureKind === 'parse' ? t('ui.reviewParseFailed') : t('ui.reviewComplete'));
+      }
       renderReviewSummary(contentEl.querySelector('#rv-final'), fullReport);
       const bubble = contentEl.closest('.msg-bubble');
       if (bubble) addMessageActions(bubble, JSON.stringify(fullReport, null, 2));
+    } else {
+      if (pill) pill.classList.add('done');
+      if (txt) txt.textContent = t('ui.reviewComplete');
     }
     // 把 AI 回复内容追加到历史
     const lastHistory = AppState.history[AppState.history.length - 1];
@@ -5283,9 +5375,16 @@ async function _handleReviewingPdf(attach, focusText) {
     if (pl) pl.textContent = '100%';
 
     if (finalReport) {
-      if (pill) pill.classList.add('done');
-      if (txt) txt.textContent = t('ui.reviewComplete');
       const fullReport = Object.assign({}, finalReport, { theorem_reviews: partials });
+      const failureKind = getReviewFailureKind(fullReport);
+      if (pill) {
+        pill.classList.add(failureKind ? 'error' : 'done');
+      }
+      if (txt) {
+        txt.textContent = failureKind === 'config'
+          ? t('ui.reviewConfigRequired')
+          : (failureKind === 'parse' ? t('ui.reviewParseFailed') : t('ui.reviewComplete'));
+      }
       renderReviewSummary(contentEl.querySelector('#rv-final'), fullReport);
       const bubble = contentEl.closest('.msg-bubble');
       if (bubble) addMessageActions(bubble, JSON.stringify(fullReport, null, 2));
