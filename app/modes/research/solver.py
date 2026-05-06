@@ -355,25 +355,6 @@ async def _solve_inner(statement: str, model=None, progress: ProgressCb = None, 
         logger.warning("Phase 1.5 (counterexample) failed: %s: %s", type(e).__name__, e)
 
     # ── Phase 2: 子目标分解 ───────────────────────────────────────────────────
-    # 疑问式命题（"是否有/是否存在"）：若经过两轮反例测试仍无确定结论，
-    # 说明问题可能是开放的前沿难题，不应强行子目标分解（代价高且结论不可靠）
-    if is_interrogative:
-        error_detail = "经过多轮证明尝试与反例检验均未得出确定结论。此类命题可能属于未解决的前沿问题，建议查阅最新文献。"
-        if logical_failures:
-            error_detail += "\n\n**探索过程中的发现：**\n" + "\n".join(f"- {fp}" for fp in logical_failures[-3:])
-        return SolverResult(
-            blueprint=(
-                "## ⚠️ 无确定结论（疑问式命题）\n\n"
-                f"{error_detail}\n\n"
-                "_提示：若有更多上下文（如论文背景、已知特例），可补充后重新提交。_"
-            ),
-            references=[],
-            confidence=0.0,
-            verdict="No confident solution",
-            obstacles=["疑问式命题，反例测试与直接证明均未给出确定结论"],
-            failed_paths=failed_paths,
-        )
-
     await _emit(progress, "decomposing", "正在分解为子目标…")
 
     # 把失败路径和搜索结果传入分解，帮助 LLM 选择不同策略
