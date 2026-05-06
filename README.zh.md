@@ -191,8 +191,6 @@ python -m uvicorn api.server:app --host 127.0.0.1 --port 8080
 
 ## 架构
 
-技术栈一览（Mermaid；在 GitHub 上可渲染）。
-
 ```mermaid
 mindmap
     root((vibe_proving))

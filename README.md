@@ -242,8 +242,6 @@ python -m uvicorn api.server:app --host 127.0.0.1 --port 8080
 
 ## Architecture
 
-Stack overview (Mermaid; renders on GitHub).
-
 ```mermaid
 mindmap
     root((vibe_proving))
