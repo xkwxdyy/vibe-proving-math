@@ -66,6 +66,7 @@ const I18N = {
     panel: {
       title: '运行设置', close: '关闭',
       appearance: '外观', theme: '主题', language: '语言',
+      user: '用户', logout: '退出登录', quota: '剩余次数',
       level: '学习层次', undergraduate: '本科', graduate: '研究生',
       params: '参数', stream: '流式输出', maxTheorems: '最大定理数',
       features: '功能', memory: 'LATRACE 记忆',
@@ -261,6 +262,7 @@ const I18N = {
     panel: {
       title: 'Run settings', close: 'Close',
       appearance: 'Appearance', theme: 'Theme', language: 'Language',
+      user: 'User', logout: 'Log out', quota: 'Quota',
       level: 'Level', undergraduate: 'Undergraduate', graduate: 'Graduate',
       params: 'Parameters', stream: 'Stream', maxTheorems: 'Max theorems',
       features: 'Features', memory: 'LATRACE Memory',
@@ -1225,11 +1227,8 @@ const AppState = {
   projectId: 'default',
   projectName: '',
   config: null,
-  userId: (() => {
-    let uid = localStorage.getItem('vp_uid');
-    if (!uid) { uid = 'user-' + Math.random().toString(36).slice(2, 10); localStorage.setItem('vp_uid', uid); }
-    return uid;
-  })(),
+  user: null,
+  userId: '',
   settings: {
     level: 'undergraduate',
     maxTheorems: 5,
@@ -1559,24 +1558,45 @@ const Attachments = {
 ───────────────────────────────────────────────────────────── */
 const SessionHistory = {
   _key: 'vp_sessions',
+  _sessions: [],
   load() {
-    try { const raw = localStorage.getItem(this._key); return raw ? JSON.parse(raw) : []; }
-    catch { return []; }
+    return this._sessions || [];
   },
-  save(sessions) { try { localStorage.setItem(this._key, JSON.stringify(sessions.slice(0, 50))); } catch {} },
-  add(title, mode, messages) {
-    const sessions = this.load();
-    sessions.unshift({ id: Date.now(), title, mode, ts: Date.now(), messages });
-    this.save(sessions);
+  save(sessions) { this._sessions = (sessions || []).slice(0, 50); },
+  async sync() {
+    try {
+      const data = await apiFetch('/history');
+      this._sessions = data.sessions || [];
+    } catch {
+      this._sessions = [];
+    }
     refreshHistorySidebar();
+  },
+  add(title, mode, messages) {
+    const temp = { id: Date.now(), title, mode, ts: Date.now(), messages };
+    this._sessions = [temp, ...this.load()].slice(0, 50);
+    refreshHistorySidebar();
+    apiPost('/history', { title, mode, messages })
+      .then(data => {
+        if (data.session) {
+          this._sessions = [data.session, ...this.load().filter(s => s.id !== temp.id)].slice(0, 50);
+          refreshHistorySidebar();
+        }
+      })
+      .catch(err => console.warn('history save failed', err));
   },
   // plan E：删除单条历史
   remove(id) {
     const sessions = this.load().filter(s => s.id !== id);
     this.save(sessions);
     refreshHistorySidebar();
+    fetch(`${API_BASE}/history/${encodeURIComponent(id)}`, { method: 'DELETE' }).catch(() => {});
   },
-  clear() { localStorage.removeItem(this._key); refreshHistorySidebar(); }
+  clear() {
+    this._sessions = [];
+    refreshHistorySidebar();
+    fetch(`${API_BASE}/history`, { method: 'DELETE' }).catch(() => {});
+  }
 };
 
 function _historyGroup(ts) {
@@ -3062,9 +3082,27 @@ function updateConfigState(llm = {}, configPath = '') {
   if (source) source.textContent = configPath || '';
 }
 
+function updateUserUi() {
+  const user = AppState.user;
+  const nameEl = document.getElementById('user-name-display');
+  const quotaEl = document.getElementById('user-quota-display');
+  if (nameEl) nameEl.textContent = user?.username || '';
+  if (quotaEl && user) quotaEl.textContent = `${user.quota_remaining}/${user.quota_limit}`;
+}
+
 function applyConfigToUi(cfg) {
   if (!cfg) return;
   AppState.config = cfg;
+  if (cfg.user) {
+    AppState.user = cfg.user;
+    AppState.userId = cfg.user.id;
+    updateUserUi();
+  }
+  if (cfg.settings && typeof cfg.settings.wait_tips === 'boolean') {
+    AppState.settings.waitTips = cfg.settings.wait_tips;
+    const waitTipsToggle = document.getElementById('toggle-wait-tips');
+    if (waitTipsToggle) waitTipsToggle.checked = AppState.settings.waitTips;
+  }
   const llm = cfg.llm || {};
   const baseEl = document.getElementById('input-llm-base-url');
   const modelEl = document.getElementById('input-llm-model');
@@ -3090,6 +3128,31 @@ async function loadAppConfig() {
     console.warn('Config load failed', err);
     return null;
   }
+}
+
+async function authMe() {
+  return apiFetch('/auth/me');
+}
+
+async function refreshCurrentUser() {
+  try {
+    const data = await authMe();
+    AppState.user = data.user;
+    AppState.userId = data.user?.id || AppState.userId;
+    updateUserUi();
+  } catch {}
+}
+
+function showAuth(errorText = '') {
+  document.getElementById('auth-view')?.style && (document.getElementById('auth-view').style.display = '');
+  document.getElementById('app-shell')?.style && (document.getElementById('app-shell').style.display = 'none');
+  const errEl = document.getElementById('auth-error');
+  if (errEl) errEl.textContent = errorText || '';
+}
+
+function showAppShell() {
+  document.getElementById('auth-view')?.style && (document.getElementById('auth-view').style.display = 'none');
+  document.getElementById('app-shell')?.style && (document.getElementById('app-shell').style.display = '');
 }
 
 async function apiSSE(endpoint, body, handlers) {
@@ -3782,6 +3845,7 @@ async function handleLearning(statement) {
     lastHistory.content = rawBuffer || '';
   }
   saveCurrentSession(statement);
+  refreshCurrentUser().catch(() => {});
   smartScroll(contentEl);
 }
 
@@ -4066,6 +4130,7 @@ function _finalizeSolve(contentEl, rawBuffer, metadata, statement, stopped) {
     lastHistory.content = rawBuffer || '';
   }
   saveCurrentSession(statement);
+  refreshCurrentUser().catch(() => {});
   smartScroll(contentEl);
 }
 
@@ -5222,6 +5287,7 @@ async function handleReviewing(focusText) {
       lastHistory.content = t('ui.reviewComplete');
     }
     saveCurrentSession(isZh ? '证明审查' : 'Proof review');
+    await refreshCurrentUser();
     Attachments.clear();
   } catch (err) {
     _stopReviewWaitTips(contentEl);
@@ -5415,6 +5481,7 @@ async function _handleReviewingPdf(attach, focusText) {
       lastHistoryPdf.content = isZh ? '证明审查 (PDF) 完成' : 'PDF proof review complete';
     }
     saveCurrentSession(isZh ? '证明审查 (PDF)' : 'Proof review (PDF)');
+    await refreshCurrentUser();
     Attachments.clear();
   } catch (err) {
     _stopReviewWaitTips(contentEl);
@@ -5459,6 +5526,7 @@ async function handleSearching(query) {
       lastHistory.content = `定理检索：${query}`;
     }
     saveCurrentSession(query);
+    await refreshCurrentUser();
   } catch (err) {
     if (err && err.name === 'AbortError') return;
     addErrorInline(contentEl, t('ui.err.searching', { e: err.message || err }));
@@ -6201,6 +6269,38 @@ function autoResize(textarea) {
    21. 事件绑定
 ───────────────────────────────────────────────────────────── */
 function bindEvents() {
+  let authMode = 'login';
+  const syncAuthTabs = () => {
+    document.getElementById('auth-tab-login')?.classList.toggle('active', authMode === 'login');
+    document.getElementById('auth-tab-register')?.classList.toggle('active', authMode === 'register');
+    const submit = document.getElementById('auth-submit');
+    if (submit) submit.textContent = authMode === 'login' ? '登录' : '注册';
+    const pwd = document.getElementById('auth-password');
+    if (pwd) pwd.setAttribute('autocomplete', authMode === 'login' ? 'current-password' : 'new-password');
+  };
+  document.getElementById('auth-tab-login')?.addEventListener('click', () => { authMode = 'login'; syncAuthTabs(); });
+  document.getElementById('auth-tab-register')?.addEventListener('click', () => { authMode = 'register'; syncAuthTabs(); });
+  document.getElementById('auth-form')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const errEl = document.getElementById('auth-error');
+    const submit = document.getElementById('auth-submit');
+    const username = document.getElementById('auth-username')?.value.trim() || '';
+    const password = document.getElementById('auth-password')?.value || '';
+    try {
+      if (errEl) errEl.textContent = '';
+      if (submit) submit.disabled = true;
+      const data = await apiPost(authMode === 'login' ? '/auth/login' : '/auth/register', { username, password });
+      AppState.user = data.user;
+      AppState.userId = data.user?.id || '';
+      showAppShell();
+      await finishAppInitAfterAuth();
+    } catch (err) {
+      if (errEl) errEl.textContent = err.message || String(err);
+    } finally {
+      if (submit) submit.disabled = false;
+    }
+  });
+  syncAuthTabs();
 
   // 卡片点击
   document.querySelectorAll('.feature-card').forEach(card => {
@@ -6276,6 +6376,10 @@ function bindEvents() {
     }
   });
   document.getElementById('btn-theme')?.addEventListener('click', toggleTheme);
+  document.getElementById('btn-logout')?.addEventListener('click', async () => {
+    await fetch(`${API_BASE}/auth/logout`, { method: 'POST' }).catch(() => {});
+    location.reload();
+  });
 
   // plan F.3 (T51)：分段切换器（中文 / EN）
   const langSeg = document.getElementById('lang-seg');
@@ -6340,6 +6444,7 @@ function bindEvents() {
     waitTipsToggle.addEventListener('change', e => {
       AppState.settings.waitTips = !!e.target.checked;
       localStorage.setItem('vp_wait_tips', AppState.settings.waitTips ? '1' : '0');
+      apiPost('/config/ui', { wait_tips: AppState.settings.waitTips }).catch(() => {});
       if (!AppState.settings.waitTips) {
         stopWaitTips();
         _stopReviewWaitTips(null);
@@ -6603,27 +6708,43 @@ function bindEvents() {
   });
 }
 
+async function finishAppInitAfterAuth() {
+  showAppShell();
+  updateUserUi();
+  UI.switchView(AppState.view);
+  UI.updateMode(AppState.mode);
+  await loadAppConfig();
+  await SessionHistory.sync();
+  _syncModeTabs();
+  localStorage.removeItem('vp_custom_model');
+  setTimeout(checkHealth, 1200);
+}
+
 /* ─────────────────────────────────────────────────────────────
    22. 初始化
 ───────────────────────────────────────────────────────────── */
 document.addEventListener('DOMContentLoaded', () => {
-  const doInit = () => {
+  let didBind = false;
+  const doInit = async () => {
     applyTheme(detectTheme());
     initRenderer();
     applyLang(detectLang());
     _syncLangTopbar();
-    UI.switchView(AppState.view);
-    UI.updateMode(AppState.mode);
-    bindEvents();
-    refreshHistorySidebar();
-    _syncModeTabs();
-    localStorage.removeItem('vp_custom_model');
-    loadAppConfig();
-    setTimeout(checkHealth, 1200);
-
-    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => {
-      if (!localStorage.getItem('vp_theme')) applyTheme(e.matches ? 'dark' : 'light');
-    });
+    if (!didBind) {
+      bindEvents();
+      didBind = true;
+      window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => {
+        if (!localStorage.getItem('vp_theme')) applyTheme(e.matches ? 'dark' : 'light');
+      });
+    }
+    try {
+      const data = await authMe();
+      AppState.user = data.user;
+      AppState.userId = data.user?.id || '';
+      await finishAppInitAfterAuth();
+    } catch {
+      showAuth();
+    }
   };
 
   if (typeof katex !== 'undefined' && typeof marked !== 'undefined') {

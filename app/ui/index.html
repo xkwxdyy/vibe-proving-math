@@ -76,9 +76,39 @@
   <!-- morphdom：纯 UMD，无 module shim 即可挂到 window.morphdom -->
   <script src="https://cdn.jsdelivr.net/npm/morphdom@2.7.4/dist/morphdom-umd.min.js"></script>
 
-  <link rel="stylesheet" href="style.css?v=f111">
+  <link rel="stylesheet" href="style.css?v=f112">
 </head>
 <body>
+
+<section class="auth-view" id="auth-view" style="display:none">
+  <div class="auth-card">
+    <div class="auth-brand">
+      <div class="logo-mark">∑</div>
+      <div>
+        <h1>vibe_proving</h1>
+        <p>数学工作者的推理伙伴</p>
+      </div>
+    </div>
+    <div class="auth-tabs">
+      <button class="auth-tab active" id="auth-tab-login" type="button">登录</button>
+      <button class="auth-tab" id="auth-tab-register" type="button">注册</button>
+    </div>
+    <form class="auth-form" id="auth-form">
+      <label>
+        <span>用户名</span>
+        <input class="param-input" id="auth-username" autocomplete="username" required minlength="3">
+      </label>
+      <label>
+        <span>密码</span>
+        <input class="param-input" id="auth-password" type="password" autocomplete="current-password" required minlength="6">
+      </label>
+      <button class="btn-primary auth-submit" id="auth-submit" type="submit">登录</button>
+      <div class="auth-error" id="auth-error"></div>
+    </form>
+  </div>
+</section>
+
+<div id="app-shell" style="display:none">
 
 <!-- ═════════════════════════════════════════════════════════════════
      左侧导航
@@ -421,6 +451,17 @@
     <button class="icon-btn" id="panel-close" data-i18n-title="panel.close" title="关闭">✕</button>
   </div>
 
+  <div class="panel-section">
+    <div class="panel-section-title" data-i18n="panel.user">用户</div>
+    <div class="status-row">
+      <span class="status-label" id="user-name-display"></span>
+      <span class="status-badge ok" id="user-quota-display">--</span>
+    </div>
+    <div class="param-row" style="justify-content:flex-end">
+      <button class="btn-secondary" id="btn-logout" data-i18n="panel.logout">退出登录</button>
+    </div>
+  </div>
+
   <!-- plan H：外观设置（合并原顶栏 theme/lang 按钮） -->
   <div class="panel-section">
     <div class="panel-section-title" data-i18n="panel.appearance">外观</div>
@@ -713,6 +754,8 @@
   </div>
 </div>
 
-<script src="app.js?v=f126"></script>
+</div>
+
+<script src="app.js?v=f127"></script>
 </body>
 </html>
