@@ -24,6 +24,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import contextvars
 from typing import AsyncIterator, Optional, Union
 
 
@@ -51,6 +52,7 @@ _MsgInput = Union[str, list[dict]]
 # 在首次使用时创建，进程生命周期内复用同一 AsyncOpenAI 实例（内置连接池）
 _llm_client: Optional[AsyncOpenAI] = None
 _config_override: dict = {}
+_request_config: contextvars.ContextVar[dict] = contextvars.ContextVar("llm_request_config", default={})
 
 
 def update_config_override(patch: dict) -> None:
@@ -61,6 +63,17 @@ def update_config_override(patch: dict) -> None:
 
 
 def get_client() -> AsyncOpenAI:
+    request_cfg = {k: v for k, v in (_request_config.get() or {}).items() if v}
+    if request_cfg:
+        import httpx as _httpx
+        cfg = dict(llm_cfg())
+        cfg.update(_config_override)
+        cfg.update(request_cfg)
+        return AsyncOpenAI(
+            base_url=cfg["base_url"],
+            api_key=cfg["api_key"],
+            timeout=_httpx.Timeout(None, connect=30.0),
+        )
     global _llm_client
     if _llm_client is None:
         import httpx as _httpx
@@ -91,7 +104,17 @@ def _effective_model(model: Optional[str] = None) -> str:
     """返回有效模型名称：显式参数 > 运行时覆盖 > config.toml 默认值。"""
     if model:
         return _normalize_model(model)
-    return _normalize_model(_config_override.get("model") or llm_cfg().get("model", "gpt-4o"))
+    request_cfg = _request_config.get() or {}
+    return _normalize_model(request_cfg.get("model") or _config_override.get("model") or llm_cfg().get("model", "gpt-4o"))
+
+
+def set_request_config(cfg: dict):
+    """Temporarily set per-request LLM config. Caller must reset the returned token."""
+    return _request_config.set({k: v for k, v in (cfg or {}).items() if v})
+
+
+def reset_request_config(token) -> None:
+    _request_config.reset(token)
 
 
 # ── Prompt 工具 ────────────────────────────────────────────────────────────────
@@ -277,7 +300,6 @@ async def stream_chat_with_reasoning(
     reasoning_content 一并流式下发；不同 OpenAI 兼容代理对推理链返回时机
     不同，实测可显著降低 deepseek-r1 类推理模型的首字节延迟。
     """
-    cfg = llm_cfg()
     client = get_client()
     messages = _build_messages(user_message, system=system, extra_messages=extra_messages)
 

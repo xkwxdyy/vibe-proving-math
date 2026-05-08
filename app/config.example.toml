@@ -38,6 +38,16 @@ timeout     = 10
 [app]
 log_level = "INFO"
 
+[auth]
+# dev: automatically signs in a local default user.
+# prod: requires username/password login for UI and protected APIs.
+mode = "dev"
+default_user = "dev_user"
+session_days = 30
+default_quota = 50
+allow_register = true
+database_path = "data/app.db"
+
 [paper_review_agent]
 grobid_url = ""
 grobid_use_public_demo = false

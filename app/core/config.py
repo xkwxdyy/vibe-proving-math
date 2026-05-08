@@ -131,6 +131,10 @@ def latrace_cfg() -> dict[str, Any]:
     return load_config().get("latrace", {})
 
 
+def auth_cfg() -> dict[str, Any]:
+    return load_config().get("auth", {}) or {}
+
+
 def latrace_enabled() -> bool:
     cfg = latrace_cfg()
     return bool(cfg.get("enabled", False))
