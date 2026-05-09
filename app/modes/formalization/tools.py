@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import os
 import re
 from dataclasses import dataclass
 from typing import Awaitable, Callable, Optional
@@ -11,6 +10,7 @@ from typing import Awaitable, Callable, Optional
 import httpx
 
 from core.llm import chat_json, lang_sys_suffix
+from core.config import formalization_cfg
 from modes.formalization.external_search import search_external_mathlib
 from modes.formalization.models import (
     FormalizationBlueprint,
@@ -127,7 +127,7 @@ def _deterministic_repair_candidate(
 
 
 def _get_github_token() -> str:
-    return os.environ.get("GITHUB_TOKEN", "").strip()
+    return str(formalization_cfg().get("github_token") or "").strip()
 
 
 def _normalize_search_keyword(token: str) -> str:
