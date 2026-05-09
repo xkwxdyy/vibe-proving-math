@@ -970,6 +970,7 @@ async def review_pdf_stream(
     不再使用 agent/docling、MinerU、PyMuPDF 作为 PDF 解析路径；解析失败返回 ``parse_failed``，无降级。
 
     ``max_theorems`` / ``check_*`` / ``mode`` / ``mineru_token`` 对 PDF 路径保留为兼容字段，当前不驱动 PDF 主流程。
+    MinerU 已切到 Agent Lightweight Extract API，无需 token。
     """
     filename = file.filename or "upload.bin"
     suffix = Path(filename).suffix.lower()
@@ -1301,7 +1302,10 @@ async def health(request: Request):
                 "cache": ts_cache,
             },
             "kimina": kimina_status,
-            "paper_review_agent": paper_review_agent,
+            "paper_review_agent": {
+                k: v for k, v in paper_review_agent.items()
+                if k not in {"mathpix", "mistral_ocr", "grobid"}
+            },
             "aristotle": aristotle_status,
         },
     }

@@ -54,9 +54,6 @@ cookie_secure = false
 grobid_url = ""
 grobid_use_public_demo = false
 grobid_public_demo_url = "https://grobidorg-grobid.hf.space"
-mathpix_base_url = "https://api.mathpix.com"
-mathpix_app_id = ""
-mathpix_app_key = ""
 mistral_ocr_url = ""
 
 [nanonets]
@@ -67,8 +64,18 @@ poll_interval_seconds = 2
 request_timeout_seconds = 120
 
 [mineru]
+# Agent Lightweight Extract API，无需 Token，IP 限频。
 # https://mineru.net/apiManage/docs
-token = ""
+base_url = "https://mineru.net/api/v1/agent"
+language = "ch"
+enable_table = true
+enable_formula = true
+is_ocr = false
+page_range = ""
+max_file_mb = 10
+poll_interval_seconds = 3
+poll_timeout_seconds = 300
+request_timeout_seconds = 120
 
 # Harmonic Aristotle — https://aristotle.harmonic.fun
 [aristotle]
