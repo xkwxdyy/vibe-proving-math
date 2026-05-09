@@ -173,16 +173,16 @@ cp app/config.example.toml app/config.toml
 #   - add your [llm] API endpoint/key/model
 
 # 3. Start with Docker Compose
-docker-compose up -d
+docker compose up -d
 
 # 4. Check status
-docker-compose ps
-docker-compose logs -f
+docker compose ps
+docker compose logs -f
 ```
 
 **Access:** `http://localhost:8080/ui/`
 
-**Stop service:** `docker-compose down`
+**Stop service:** `docker compose down`
 
 ### Option 2: Local Python Installation
 
