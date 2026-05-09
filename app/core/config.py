@@ -149,10 +149,6 @@ def nanonets_cfg() -> dict[str, Any]:
     return load_config().get("nanonets", {}) or {}
 
 
-def formalization_model_cfg() -> dict[str, Any]:
-    return load_config().get("formalization_models", {})
-
-
 def aristotle_cfg() -> dict[str, Any]:
     """Harmonic Aristotle API（https://aristotle.harmonic.fun）。"""
     return load_config().get("aristotle", {}) or {}
