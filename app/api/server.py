@@ -1315,13 +1315,15 @@ async def search(
     if not q or not q.strip():
         raise HTTPException(status_code=422, detail="q 不能为空")
     user = require_quota(user)
+    from core.config import ts_cfg
     from skills.search_theorems import search_theorems
 
     try:
-        # 添加5秒超时，避免长时间等待外部服务
+        # 使用 TheoremSearch 配置超时，避免长时间等待外部服务。
+        timeout_s = float(ts_cfg().get("timeout", 10) or 10)
         results = await asyncio.wait_for(
             search_theorems(q, top_k=top_k, min_sim=min_similarity),
-            timeout=5.0
+            timeout=timeout_s,
         )
         return {
             "query": q,
