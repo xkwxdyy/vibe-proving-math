@@ -230,6 +230,140 @@ def _append_hint_to_content(content, hint: str):
     return content
 
 
+def _effective_cfg() -> dict:
+    cfg = dict(llm_cfg())
+    cfg.update(_config_override)
+    cfg.update({k: v for k, v in (_request_config.get() or {}).items() if v})
+    return cfg
+
+
+def _use_gemini_native(model: str, cfg: Optional[dict] = None) -> bool:
+    cfg = cfg or _effective_cfg()
+    base_url = str(cfg.get("base_url") or "").lower()
+    return model.startswith("gemini-") and (
+        "aicode.cat" in base_url
+        or "generativelanguage.googleapis.com" in base_url
+    )
+
+
+def _gemini_base_url(cfg: dict) -> str:
+    base_url = str(cfg.get("base_url") or "").rstrip("/")
+    if base_url.endswith("/v1"):
+        base_url = base_url[:-3]
+    return base_url or "https://generativelanguage.googleapis.com"
+
+
+def _content_to_text(content: Any) -> str:
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        pieces: list[str] = []
+        for item in content:
+            if isinstance(item, dict):
+                text = item.get("text")
+                if isinstance(text, str):
+                    pieces.append(text)
+        return "\n".join(pieces)
+    return str(content or "")
+
+
+def _messages_to_gemini_contents(messages: list[dict]) -> tuple[str, list[dict]]:
+    system_parts: list[str] = []
+    contents: list[dict] = []
+    for msg in messages:
+        role = msg.get("role") or "user"
+        text = _content_to_text(msg.get("content"))
+        if not text:
+            continue
+        if role == "system":
+            system_parts.append(text)
+            continue
+        gemini_role = "model" if role == "assistant" else "user"
+        contents.append({"role": gemini_role, "parts": [{"text": text}]})
+    return "\n\n".join(system_parts), contents
+
+
+def _extract_gemini_text(payload: dict) -> str:
+    pieces: list[str] = []
+    for candidate in payload.get("candidates") or []:
+        content = candidate.get("content") or {}
+        for part in content.get("parts") or []:
+            text = part.get("text")
+            if isinstance(text, str) and text:
+                pieces.append(text)
+    return "".join(pieces)
+
+
+def _gemini_payload(messages: list[dict], *, temperature: float, max_tokens: int) -> dict:
+    system_text, contents = _messages_to_gemini_contents(messages)
+    payload: dict[str, Any] = {
+        "contents": contents,
+        "generationConfig": {
+            "temperature": temperature,
+            "maxOutputTokens": max_tokens,
+        },
+    }
+    if system_text:
+        payload["systemInstruction"] = {"parts": [{"text": system_text}]}
+    return payload
+
+
+async def _gemini_native_generate(
+    messages: list[dict],
+    *,
+    model: str,
+    temperature: float,
+    max_tokens: int,
+) -> str:
+    import httpx
+
+    cfg = _effective_cfg()
+    url = f"{_gemini_base_url(cfg)}/v1beta/models/{model}:generateContent"
+    params = {"key": str(cfg.get("api_key") or "")}
+    async with httpx.AsyncClient(timeout=httpx.Timeout(None, connect=30.0)) as client:
+        resp = await client.post(
+            url,
+            params=params,
+            json=_gemini_payload(messages, temperature=temperature, max_tokens=max_tokens),
+        )
+        resp.raise_for_status()
+        return _extract_gemini_text(resp.json())
+
+
+async def _gemini_native_stream(
+    messages: list[dict],
+    *,
+    model: str,
+    temperature: float,
+    max_tokens: int,
+) -> AsyncIterator[str]:
+    import httpx
+
+    cfg = _effective_cfg()
+    url = f"{_gemini_base_url(cfg)}/v1beta/models/{model}:streamGenerateContent"
+    params = {"key": str(cfg.get("api_key") or "")}
+    async with httpx.AsyncClient(timeout=httpx.Timeout(None, connect=30.0)) as client:
+        async with client.stream(
+            "POST",
+            url,
+            params=params,
+            json=_gemini_payload(messages, temperature=temperature, max_tokens=max_tokens),
+        ) as resp:
+            resp.raise_for_status()
+            async for line in resp.aiter_lines():
+                line = line.strip()
+                if not line or line == "data: [DONE]":
+                    continue
+                if line.startswith("data:"):
+                    line = line[5:].strip()
+                try:
+                    text = _extract_gemini_text(json.loads(line))
+                except Exception:
+                    continue
+                if text:
+                    yield text
+
+
 # ── 公共 API ───────────────────────────────────────────────────────────────────
 
 # 此 API 不接受 provider/ 前缀格式（OpenRouter 风格），需归一化
@@ -288,14 +422,22 @@ async def chat(
     last_content = ""
     for attempt in range(_retries + 1):
         try:
-            resp = await _create_chat_completion(
-                client,
-                model=_model,
-                messages=messages,
-                temperature=temperature,
-                max_tokens=max_tokens,
-            )
-            content = _extract_content(resp)
+            if _use_gemini_native(_model):
+                content = await _gemini_native_generate(
+                    messages,
+                    model=_model,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                )
+            else:
+                resp = await _create_chat_completion(
+                    client,
+                    model=_model,
+                    messages=messages,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                )
+                content = _extract_content(resp)
             if content:
                 if attempt > 0:
                     logger.debug("chat() succeeded on attempt %d", attempt + 1)
@@ -330,9 +472,20 @@ async def stream_chat(
     """
     client = get_client()
     messages = _build_messages(user_message, system=system, extra_messages=extra_messages)
+    _model = _effective_model(model)
+    if _use_gemini_native(_model):
+        async for chunk in _gemini_native_stream(
+            messages,
+            model=_model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        ):
+            yield chunk
+        return
+
     stream = await _create_chat_completion(
         client,
-        model=_effective_model(model),
+        model=_model,
         messages=messages,
         temperature=temperature,
         max_tokens=max_tokens,
@@ -370,11 +523,21 @@ async def stream_chat_with_reasoning(
     """
     client = get_client()
     messages = _build_messages(user_message, system=system, extra_messages=extra_messages)
+    _model = _effective_model(model)
+    if _use_gemini_native(_model):
+        async for chunk in _gemini_native_stream(
+            messages,
+            model=_model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        ):
+            yield ("content", chunk)
+        return
 
     try:
         stream = await _create_chat_completion(
             client,
-            model=_effective_model(model),
+            model=_model,
             messages=messages,
             temperature=temperature,
             max_tokens=max_tokens,
@@ -385,7 +548,7 @@ async def stream_chat_with_reasoning(
         # 若 LLM 不支持 extra_body（如部分轻量代理），降级为不携带 reasoning 字段
         stream = await _create_chat_completion(
             client,
-            model=_effective_model(model),
+            model=_model,
             messages=messages,
             temperature=temperature,
             max_tokens=max_tokens,
@@ -433,15 +596,23 @@ async def chat_json(
     # ── Phase 1: JSON mode（2 次尝试，原 3 次）──────────────────────────────
     for attempt in range(2):
         try:
-            resp = await _create_chat_completion(
-                client,
-                model=_model,
-                messages=messages,
-                temperature=0.1,
-                max_tokens=16384,  # plan F.3 (T46)：proof JSON 完整性优先，避免末尾截断
-                response_format={"type": "json_object"},
-            )
-            text = _extract_content(resp) or "{}"
+            if _use_gemini_native(_model):
+                text = await _gemini_native_generate(
+                    messages,
+                    model=_model,
+                    temperature=0.1,
+                    max_tokens=16384,
+                ) or "{}"
+            else:
+                resp = await _create_chat_completion(
+                    client,
+                    model=_model,
+                    messages=messages,
+                    temperature=0.1,
+                    max_tokens=16384,  # plan F.3 (T46)：proof JSON 完整性优先，避免末尾截断
+                    response_format={"type": "json_object"},
+                )
+                text = _extract_content(resp) or "{}"
             parsed = json.loads(_fix_latex_json(text))
             if parsed:
                 return parsed
@@ -462,14 +633,22 @@ async def chat_json(
     text = "{}"
     for attempt in range(2):
         try:
-            resp = await _create_chat_completion(
-                client,
-                model=_model,
-                messages=messages_fallback,
-                temperature=0.1,
-                max_tokens=16384,  # plan F.3 (T46)：与 json_mode 路径对齐
-            )
-            text = _extract_content(resp) or "{}"
+            if _use_gemini_native(_model):
+                text = await _gemini_native_generate(
+                    messages_fallback,
+                    model=_model,
+                    temperature=0.1,
+                    max_tokens=16384,
+                ) or "{}"
+            else:
+                resp = await _create_chat_completion(
+                    client,
+                    model=_model,
+                    messages=messages_fallback,
+                    temperature=0.1,
+                    max_tokens=16384,  # plan F.3 (T46)：与 json_mode 路径对齐
+                )
+                text = _extract_content(resp) or "{}"
             if text and text != "{}":
                 break
         except Exception as exc:

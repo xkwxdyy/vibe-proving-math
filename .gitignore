@@ -71,6 +71,7 @@ app/config.toml
 .claude/
 
 # ──────── 本地工具链 / 大型依赖 / 第三方参考实现 ────────
+.lake/
 FATE/
 Archon/
 Rethlas/
