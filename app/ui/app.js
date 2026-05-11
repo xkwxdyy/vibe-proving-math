@@ -1247,7 +1247,7 @@ window.copyCodeBlock = function(btn) {
 const AppState = {
   view: 'home',
   mode: 'learning',
-  model: 'gemini-2.5-flash',
+  model: '',
   lang: 'zh',
   projectId: 'default',
   projectName: '',
@@ -1971,17 +1971,8 @@ const UI = {
     const titleEl = document.getElementById('chat-title');
     if (titleEl && AppState.view === 'chat') titleEl.textContent = t('topbar.title') || '新对话';
 
-    // 切换模式时自动设定对应默认模型
-    const _MODE_MODELS = {
-      learning:      'gemini-2.5-flash',
-      solving:       'gemini-2.5-pro',
-      reviewing:     'gpt-5.4',
-      searching:     'gemini-2.5-flash',
-      formalization: 'gpt-5.3-codex',
-    };
     const configuredModel = AppState.config?.llm?.model;
-    const defaultModel = configuredModel || _MODE_MODELS[mode] || 'gemini-2.5-flash';
-    setActiveModel(defaultModel);
+    if (configuredModel && !AppState.model) setActiveModel(configuredModel);
 
     _syncModeChipLabel();
     _syncModeTabs();
@@ -3181,7 +3172,7 @@ function applyConfigToUi(cfg) {
   const modelEl = document.getElementById('input-llm-model');
   if (baseEl) baseEl.value = llm.base_url || '';
   if (modelEl) modelEl.value = llm.model || '';
-  if (llm.model) setActiveModel(llm.model);
+  if (llm.model && (!AppState.model || AppState.model === 'gemini-2.5-flash')) setActiveModel(llm.model);
   updateConfigState(llm, cfg.config_path || '');
 }
 
@@ -3270,7 +3261,10 @@ async function apiSSE(endpoint, body, handlers) {
           if (obj.chunk !== undefined) onChunk(obj.chunk);
           else if (obj.reasoning !== undefined && onReasoning) onReasoning(obj.reasoning);
           else if (obj.status !== undefined && onStatus) onStatus(obj.step, obj.status);
-          else if (obj.error) onError(obj.error);
+          else if (obj.error) {
+            onError(obj.error);
+            return;
+          }
         } catch {}
       }
     }
@@ -4765,7 +4759,7 @@ function renderSectionCardHtml(sec, index) {
     const quoteHtml = iss.source_quote
       ? `<blockquote class="review-quote">${renderMathText(iss.source_quote)}</blockquote>` : '';
     const fixHtml = iss.fix_suggestion
-      ? `<div style="margin-top:4px;font-size:12px;color:var(--text-secondary)">→ ${renderMathText(iss.fix_suggestion)}</div>` : '';
+      ? renderReviewField(isZh ? '修复建议' : 'Suggestion', iss.fix_suggestion, { className: 'review-field-suggestion' }) : '';
     return `
       <div class="issue-item">
         <div class="issue-content">
@@ -4781,7 +4775,7 @@ function renderSectionCardHtml(sec, index) {
     const quoteHtml = iss.source_quote
       ? `<blockquote class="review-quote">${renderMathText(iss.source_quote)}</blockquote>` : '';
     const fixHtml = iss.fix_suggestion
-      ? `<div style="margin-top:4px;font-size:12px;color:var(--text-secondary)">→ ${renderMathText(iss.fix_suggestion)}</div>` : '';
+      ? renderReviewField(isZh ? '修复建议' : 'Suggestion', iss.fix_suggestion, { className: 'review-field-suggestion' }) : '';
     return `
       <div class="issue-item">
         <div class="issue-content">
@@ -4987,13 +4981,19 @@ async function streamReview(proofText, { onStatus, onResult, onFinal, onError, l
         const body = line.slice(5).trim();
         if (!body) continue;
         if (body === '[DONE]') return;
+        let obj;
         try {
-          const obj = JSON.parse(body);
-          if (obj.status !== undefined && onStatus) onStatus(obj.step || 'info', obj.status);
-          else if (obj.result !== undefined && onResult) onResult(obj.result);
-          else if (obj.final !== undefined && onFinal) onFinal(obj.final);
-          else if (obj.error && onError) onError(obj.error);
-        } catch { /* ignore malformed line */ }
+          obj = JSON.parse(body);
+        } catch {
+          continue;
+        }
+        if (obj.status !== undefined && onStatus) onStatus(obj.step || 'info', obj.status);
+        else if (obj.result !== undefined && onResult) onResult(obj.result);
+        else if (obj.final !== undefined && onFinal) onFinal(obj.final);
+        else if (obj.error) {
+          if (onError) onError(obj.error);
+          throw new Error(obj.error);
+        }
       }
     }
   } finally {

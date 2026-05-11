@@ -16,7 +16,7 @@ from typing import Any, Awaitable, Callable, Optional
 
 from core.config import nanonets_cfg
 from core.llm import chat_json, lang_sys_suffix
-from core.nanonets_client import NanonetsExtractResult, extract_pdf_markdown_nanonets
+from core.nanonets_client import NanonetsExtractResult, extract_pdf_markdown_nanonets_with_fallback
 from core.text_sanitize import sanitize_dict, strip_non_math_latex
 
 logger = logging.getLogger(__name__)
@@ -446,9 +446,13 @@ async def run_pdf_nanonets_section_review(
 
     await _emit_progress(progress, "nanonets", "正在通过 Nanonets OCR 解析 PDF…")
 
-    ex = await extract_pdf_markdown_nanonets(
+    cfg_keys = ncfg.get("api_keys")
+    fallback_keys = cfg_keys if isinstance(cfg_keys, list) else []
+    ordered_keys = [nanonets_api_key, *fallback_keys]
+
+    ex = await extract_pdf_markdown_nanonets_with_fallback(
         pdf_bytes,
-        api_key=nanonets_api_key,
+        api_keys=ordered_keys,
         filename=source.split("/")[-1] or "document.pdf",
         httpx_timeout=req_to,
         poll_interval=poll_iv,

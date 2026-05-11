@@ -228,14 +228,72 @@ async def extract_pdf_markdown_nanonets(
                     pages_processed=int(b2.get("pages_processed") or 0),
                 )
 
-        return NanonetsExtractResult(
-            ok=False,
-            markdown="",
-            error_code="timeout",
-            error_message=f"等待 Nanonets 结果超过 {max_poll_seconds:.0f}s（record_id={record_id}）",
-            record_id=record_id,
-            raw_status="polling_timeout",
+    return NanonetsExtractResult(
+        ok=False,
+        markdown="",
+        error_code="timeout",
+        error_message=f"等待 Nanonets 结果超过 {max_poll_seconds:.0f}s（record_id={record_id}）",
+        record_id=record_id,
+        raw_status="polling_timeout",
+    )
+
+
+async def extract_pdf_markdown_nanonets_with_fallback(
+    pdf_bytes: bytes,
+    *,
+    api_keys: list[str],
+    filename: str = "document.pdf",
+    httpx_timeout: float = 120.0,
+    poll_interval: float = 2.0,
+    max_poll_seconds: float = 900.0,
+    include_hierarchy_json: bool = True,
+) -> NanonetsExtractResult:
+    """Try configured Nanonets keys in order, falling through on quota/rate-limit errors."""
+    keys = [k.strip() for k in (api_keys or []) if str(k or "").strip()]
+    if not keys:
+        return await extract_pdf_markdown_nanonets(
+            pdf_bytes,
+            api_key="",
+            filename=filename,
+            httpx_timeout=httpx_timeout,
+            poll_interval=poll_interval,
+            max_poll_seconds=max_poll_seconds,
+            include_hierarchy_json=include_hierarchy_json,
         )
+
+    last: NanonetsExtractResult | None = None
+    quota_messages: list[str] = []
+    for idx, key in enumerate(keys, start=1):
+        result = await extract_pdf_markdown_nanonets(
+            pdf_bytes,
+            api_key=key,
+            filename=filename,
+            httpx_timeout=httpx_timeout,
+            poll_interval=poll_interval,
+            max_poll_seconds=max_poll_seconds,
+            include_hierarchy_json=include_hierarchy_json,
+        )
+        if result.ok:
+            if idx > 1:
+                logger.info("Nanonets fallback key #%d succeeded", idx)
+            return result
+        last = result
+        message = (result.error_message or "").lower()
+        is_quota = (
+            "429" in message
+            or "rate limit" in message
+            or "daily limit" in message
+            or "quota" in message
+        )
+        if not is_quota:
+            return result
+        quota_messages.append(f"key #{idx}: {result.error_message}")
+        logger.warning("Nanonets key #%d hit quota/rate limit; trying next key if available", idx)
+
+    if last is not None and len(keys) > 1:
+        last.error_code = "rate_limited"
+        last.error_message = "所有配置的 Nanonets API Key 均已达到限额或被限频：" + " | ".join(quota_messages)
+    return last or NanonetsExtractResult(ok=False, markdown="", error_code="missing_api_key", error_message="未配置 Nanonets API Key")
 
 
 def _safe_detail(resp: httpx.Response) -> str:

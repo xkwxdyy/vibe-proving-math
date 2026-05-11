@@ -1616,7 +1616,7 @@ async def health(request: Request):
 
     ts_cache = _ts_cache_stats()
     nanonets = _effective_nanonets_cfg(user)
-    nanonets_configured = bool(str(nanonets.get("api_key", "")).strip())
+    nanonets_configured = _nanonets_has_key(nanonets)
 
     # overall 由 LLM 连通性决定（TheoremSearch 超时不影响系统可用性）
     overall = "ok" if llm_status == "ok" else "degraded"
@@ -1685,6 +1685,13 @@ def _effective_nanonets_cfg(user: dict | None = None) -> dict:
     return base
 
 
+def _nanonets_has_key(cfg: dict) -> bool:
+    if bool(str(cfg.get("api_key", "")).strip()):
+        return True
+    keys = cfg.get("api_keys")
+    return isinstance(keys, list) and any(str(k or "").strip() for k in keys)
+
+
 @app.get("/config")
 async def get_config(user: dict = Depends(current_user)):
     """返回 UI 可展示的脱敏配置。API key 只返回是否已配置。"""
@@ -1703,7 +1710,7 @@ async def get_config(user: dict = Depends(current_user)):
             "api_key_configured": bool(str(llm.get("api_key", "")).strip()),
         },
         "nanonets": {
-            "api_key_configured": bool(str(nanonets.get("api_key", "")).strip()),
+            "api_key_configured": _nanonets_has_key(nanonets),
         },
         "settings": {
             "wait_tips": (settings.get("ui") or {}).get("wait_tips"),
