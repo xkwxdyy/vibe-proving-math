@@ -130,6 +130,7 @@ _PROTECTED_PATH_PREFIXES = (
     "/learn",
     "/solve",
     "/review",
+    "/attachments",
     "/search",
     "/projects",
     "/config",
@@ -336,6 +337,8 @@ class LearnRequest(BaseModel):
     model: Optional[str] = None
     stream: bool = True
     lang: Optional[str] = None
+    text_attachments: Optional[list[str]] = None
+    chat_context: Optional[list[dict]] = None
 
 
 class LearnSectionRequest(BaseModel):
@@ -356,6 +359,7 @@ class SolveRequest(BaseModel):
     stream: bool = True
     lang: Optional[str] = None
     text_attachments: Optional[list[str]] = None
+    chat_context: Optional[list[dict]] = None
 
 
 class SolveLatexRequest(BaseModel):
@@ -376,6 +380,59 @@ class ReviewRequest(BaseModel):
     check_symbols: bool = True  # 是否检查符号一致性
     extended_thinking: bool = False  # Extended Thinking
     model: Optional[str] = None
+
+
+def _max_context_pdf_pages() -> int:
+    cfg = (load_config().get("app") or {})
+    try:
+        return max(1, int(cfg.get("max_context_pdf_pages") or 10))
+    except Exception:
+        return 10
+
+
+def _chat_context_config() -> tuple[int, int]:
+    cfg = (load_config().get("app") or {})
+    try:
+        turns = max(0, int(cfg.get("chat_context_turns") or 4))
+    except Exception:
+        turns = 4
+    try:
+        max_chars = max(0, int(cfg.get("chat_context_max_chars") or 6000))
+    except Exception:
+        max_chars = 6000
+    return turns, max_chars
+
+
+def _trim_context_item(text: str, role: str) -> str:
+    limit = 2000 if role == "user" else 1200
+    text = str(text or "").strip()
+    if len(text) <= limit:
+        return text
+    return text[:limit] + f"\n[... {len(text) - limit} chars truncated ...]"
+
+
+def _format_chat_context(chat_context: list[dict] | None) -> str:
+    turns, max_chars = _chat_context_config()
+    if not chat_context or turns <= 0 or max_chars <= 0:
+        return ""
+    lines: list[str] = []
+    for item in chat_context[-turns:]:
+        if not isinstance(item, dict):
+            continue
+        role = str(item.get("role") or "").strip().lower()
+        if role not in {"user", "ai", "assistant"}:
+            continue
+        label = "Assistant" if role in {"ai", "assistant"} else "User"
+        content = _trim_context_item(str(item.get("content") or ""), "assistant" if label == "Assistant" else "user")
+        if not content:
+            continue
+        lines.append(f"{label}: {content}")
+    if not lines:
+        return ""
+    formatted = "[Recent conversation context from this user's current chat]\n" + "\n\n".join(lines)
+    if len(formatted) <= max_chars:
+        return formatted
+    return formatted[-max_chars:]
 
 
 class CreateProjectRequest(BaseModel):
@@ -506,6 +563,50 @@ async def history_clear(user: dict = Depends(current_user)):
     return {"ok": True}
 
 
+@app.post("/attachments/pdf_text")
+async def attachment_pdf_text(file: UploadFile = File(...), user: dict = Depends(current_user)):
+    """Extract text from a small PDF attachment for learning/solving context."""
+    filename = file.filename or "upload.pdf"
+    suffix = Path(filename).suffix.lower()
+    content_type = (file.content_type or "").lower()
+    if suffix != ".pdf" and content_type != "application/pdf":
+        raise HTTPException(status_code=415, detail="仅支持 PDF 文件")
+
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=422, detail="上传文件不能为空")
+    if len(content) > 50 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="PDF 文件超过 50 MB 限制")
+
+    from core.knowledge_base import extract_pdf_text
+
+    limit = _max_context_pdf_pages()
+    try:
+        text, page_count = extract_pdf_text(content)
+    except Exception as exc:
+        logger.exception("PDF attachment extraction failed: user=%s file=%s", user.get("username") or user.get("id"), filename)
+        raise HTTPException(status_code=422, detail=f"无法解析 PDF: {exc}") from exc
+
+    if page_count > limit:
+        raise HTTPException(status_code=413, detail=f"PDF 页数为 {page_count}，目前仅支持 {limit} 页，请拆分后上传")
+    if not text.strip():
+        raise HTTPException(status_code=422, detail="PDF 未提取到可用文本")
+
+    logger.info(
+        "PDF attachment extracted: user=%s file=%s pages=%d chars=%d",
+        user.get("username") or user.get("id"),
+        filename,
+        page_count,
+        len(text),
+    )
+    return {
+        "filename": filename,
+        "page_count": page_count,
+        "max_pages": limit,
+        "text": text[:30000],
+    }
+
+
 def _normalize_image_payload(payload: str, *, default_mime: str = "image/png") -> str:
     raw = (payload or "").strip()
     if not raw:
@@ -531,7 +632,7 @@ def _upload_to_data_url(content: bytes, content_type: str | None, filename: str 
     return f"data:{mime};base64,{encoded}"
 
 
-async def _run_review_stream(review_coro_factory, *, start_status: str):
+async def _run_review_stream(review_coro_factory, *, start_status: str, request: Request | None = None):
     import base64 as _b64s
     import json as _js
 
@@ -564,7 +665,13 @@ async def _run_review_stream(review_coro_factory, *, start_status: str):
 
         try:
             while True:
-                kind, k2, payload = await queue.get()
+                if request is not None and await request.is_disconnected():
+                    logger.info("paper review stream disconnected; cancelling pipeline")
+                    break
+                try:
+                    kind, k2, payload = await asyncio.wait_for(queue.get(), timeout=0.5)
+                except asyncio.TimeoutError:
+                    continue
                 if kind is SENTINEL_DONE:
                     break
                 if kind == "status":
@@ -781,6 +888,8 @@ async def learn(req: LearnRequest, user: dict = Depends(current_user)):
     req.user_id = str(user["id"])
 
     from modes.learning.pipeline import stream_learning_pipeline, run_learning_pipeline
+    extra_ctx = "\n\n".join(req.text_attachments or [])
+    chat_ctx = _format_chat_context(req.chat_context)
 
     if req.stream:
         async def _gen():
@@ -810,11 +919,13 @@ async def learn(req: LearnRequest, user: dict = Depends(current_user)):
                         except Exception:
                             pass
 
+                merged_kb_text = "\n\n".join([p for p in (chat_ctx, kb_text, extra_ctx) if p])
+
                 async for chunk in stream_learning_pipeline(
                     req.statement,
                     level=req.level,
                     model=req.model,
-                    kb_context=kb_text,
+                    kb_context=merged_kb_text or None,
                     lang=req.lang,
                 ):
                     yield chunk
@@ -843,6 +954,7 @@ async def learn(req: LearnRequest, user: dict = Depends(current_user)):
                 req.statement,
                 level=req.level,
                 model=req.model,
+                kb_context="\n\n".join([p for p in (chat_ctx, extra_ctx) if p]) or None,
                 lang=req.lang,
             )
         finally:
@@ -899,6 +1011,8 @@ async def solve(req: SolveRequest, user: dict = Depends(current_user)):
     from modes.research.solver import solve as _solve
 
     extra_ctx = "\n\n".join(req.text_attachments or [])
+    chat_ctx = _format_chat_context(req.chat_context)
+    merged_extra_ctx = "\n\n".join([p for p in (chat_ctx, extra_ctx) if p])
 
     if req.stream:
         async def _gen():
@@ -917,7 +1031,7 @@ async def solve(req: SolveRequest, user: dict = Depends(current_user)):
 
                 solve_task = _asyncio.create_task(
                     _solve(req.statement, model=req.model, progress=_on_progress,
-                           lang=req.lang, extra_context=extra_ctx)
+                           lang=req.lang, extra_context=merged_extra_ctx)
                 )
 
                 # 消费 status 队列，直到 solve_task 完成
@@ -951,7 +1065,7 @@ async def solve(req: SolveRequest, user: dict = Depends(current_user)):
         llm_token = _apply_user_llm_context(user)
         try:
             result = await _solve(req.statement, model=req.model,
-                                  lang=req.lang, extra_context=extra_ctx)
+                                  lang=req.lang, extra_context=merged_extra_ctx)
         finally:
             _reset_user_llm_context(llm_token)
         return result.to_dict()
@@ -1108,6 +1222,7 @@ async def review_stream(req: ReviewRequest, user: dict = Depends(current_user)):
 
 @app.post("/review_pdf_stream")
 async def review_pdf_stream(
+    request: Request,
     file: UploadFile = File(...),
     max_theorems: int = Form(8, ge=1, le=50),
     user_id: str = Form("anonymous"),
@@ -1229,6 +1344,7 @@ async def review_pdf_stream(
     return await _run_review_stream(
         _factory,
         start_status="<!--vp-status:start|启动论文上传审查…-->",
+        request=request,
     )
 
 
