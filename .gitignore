@@ -85,6 +85,7 @@ test_*.html
 _tmp_*.txt
 _tips_*.txt
 run.sh
+run_debug.sh
 start_server.bat
 
 
