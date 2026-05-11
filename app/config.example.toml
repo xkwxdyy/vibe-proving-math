@@ -60,6 +60,9 @@ mistral_ocr_url = ""
 [nanonets]
 # https://extraction-api.nanonets.com
 api_key = ""
+# Optional fallback keys. When the primary key returns a quota/rate-limit error,
+# PDF review tries these keys in order.
+api_keys = []
 max_poll_seconds = 900
 poll_interval_seconds = 2
 request_timeout_seconds = 120

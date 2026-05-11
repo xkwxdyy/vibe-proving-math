@@ -587,8 +587,6 @@ async def attachment_pdf_text(file: UploadFile = File(...), user: dict = Depends
         logger.exception("PDF attachment extraction failed: user=%s file=%s", user.get("username") or user.get("id"), filename)
         raise HTTPException(status_code=422, detail=f"无法解析 PDF: {exc}") from exc
 
-    if page_count > limit:
-        raise HTTPException(status_code=413, detail=f"PDF 页数为 {page_count}，目前仅支持 {limit} 页，请拆分后上传")
     if not text.strip():
         raise HTTPException(status_code=422, detail="PDF 未提取到可用文本")
 
@@ -603,6 +601,7 @@ async def attachment_pdf_text(file: UploadFile = File(...), user: dict = Depends
         "filename": filename,
         "page_count": page_count,
         "max_pages": limit,
+        "over_page_limit": page_count > limit,
         "text": text[:30000],
     }
 
@@ -1552,6 +1551,7 @@ async def health(request: Request):
     import datetime as _dt
     from core.theorem_search import _get_http_client
     from core.config import ts_cfg
+    from core.matlas_search import get_cache_stats as _matlas_cache_stats
     from modes.research.agent.tools import check_agent_tool_health
     from modes.formalization.verifier import check_kimina_health
     from core.aristotle_client import check_aristotle_health
@@ -1616,7 +1616,7 @@ async def health(request: Request):
 
     ts_cache = _ts_cache_stats()
     nanonets = _effective_nanonets_cfg(user)
-    nanonets_configured = bool(str(nanonets.get("api_key", "")).strip())
+    nanonets_configured = _nanonets_has_key(nanonets)
 
     # overall 由 LLM 连通性决定（TheoremSearch 超时不影响系统可用性）
     overall = "ok" if llm_status == "ok" else "degraded"
@@ -1638,6 +1638,10 @@ async def health(request: Request):
             "theorem_search": {
                 "status": ts_status,
                 "cache": ts_cache,
+            },
+            "matlas": {
+                "status": "ok",
+                "cache": _matlas_cache_stats(),
             },
             "kimina": kimina_status,
             "nanonets": {
@@ -1681,6 +1685,13 @@ def _effective_nanonets_cfg(user: dict | None = None) -> dict:
     return base
 
 
+def _nanonets_has_key(cfg: dict) -> bool:
+    if bool(str(cfg.get("api_key", "")).strip()):
+        return True
+    keys = cfg.get("api_keys")
+    return isinstance(keys, list) and any(str(k or "").strip() for k in keys)
+
+
 @app.get("/config")
 async def get_config(user: dict = Depends(current_user)):
     """返回 UI 可展示的脱敏配置。API key 只返回是否已配置。"""
@@ -1699,7 +1710,7 @@ async def get_config(user: dict = Depends(current_user)):
             "api_key_configured": bool(str(llm.get("api_key", "")).strip()),
         },
         "nanonets": {
-            "api_key_configured": bool(str(nanonets.get("api_key", "")).strip()),
+            "api_key_configured": _nanonets_has_key(nanonets),
         },
         "settings": {
             "wait_tips": (settings.get("ui") or {}).get("wait_tips"),
