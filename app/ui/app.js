@@ -2753,7 +2753,7 @@ function _startReviewWaitTips(el) {
   setTimeout(() => {
     if (!AppState.settings.waitTips) return;
     if (!el.isConnected) return;
-    el.innerHTML = _renderWaitTipText(tips[_rvWaitTipIdx]);
+    _setWaitTipText(el, tips[_rvWaitTipIdx]);
     renderKatexFallback(el);
 
     // 开始定时轮播
@@ -2762,7 +2762,7 @@ function _startReviewWaitTips(el) {
       const ts = _waitTipsShuffled[AppState.lang] || _waitTipsShuffled.zh;
       _rvWaitTipIdx = (_rvWaitTipIdx + 1) % ts.length;
       if (el.isConnected) {
-        el.innerHTML = _renderWaitTipText(ts[_rvWaitTipIdx]);
+        _setWaitTipText(el, ts[_rvWaitTipIdx]);
         renderKatexFallback(el);
       } else {
         _stopReviewWaitTips(null);

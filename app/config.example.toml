@@ -25,7 +25,7 @@ timeout  = 120
 
 [theorem_search]
 base_url = "https://api.theoremsearch.com"
-timeout  = 60
+timeout  = 10
 
 [latrace]
 # 可选：LATRACE 记忆服务，不配置不影响核心功能。

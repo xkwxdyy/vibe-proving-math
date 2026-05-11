@@ -37,7 +37,7 @@ def _get_http_client() -> httpx.AsyncClient:
     if _http_client is None or _http_client.is_closed:
         cfg = ts_cfg()
         _http_client = httpx.AsyncClient(
-            timeout=cfg.get("timeout", 15),
+            timeout=cfg.get("timeout", 10),
             limits=httpx.Limits(
                 max_connections=20,
                 max_keepalive_connections=10,
