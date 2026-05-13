@@ -16,6 +16,8 @@ from typing import Any, Optional
 
 import httpx
 
+from .pdf_fix import fix_all
+
 logger = logging.getLogger(__name__)
 
 NANONETS_BASE_URL = "https://extraction-api.nanonets.com"
@@ -159,9 +161,10 @@ async def extract_pdf_markdown_nanonets(
                     raw_status="completed",
                     pages_processed=int(body.get("pages_processed") or 0),
                 )
+            fixed_md = fix_all(_markdown_from_body(body))
             return NanonetsExtractResult(
                 ok=True,
-                markdown=_markdown_from_body(body),
+                markdown=fixed_md,
                 hierarchy=_hierarchy_from_body(body),
                 record_id=record_id,
                 raw_status="completed",
@@ -219,9 +222,10 @@ async def extract_pdf_markdown_nanonets(
                         raw_status=status,
                         pages_processed=int(b2.get("pages_processed") or 0),
                     )
+                fixed_md = fix_all(_markdown_from_body(b2))
                 return NanonetsExtractResult(
                     ok=True,
-                    markdown=_markdown_from_body(b2),
+                    markdown=fixed_md,
                     hierarchy=_hierarchy_from_body(b2),
                     record_id=record_id,
                     raw_status=status,

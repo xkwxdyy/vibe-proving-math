@@ -68,6 +68,14 @@ _MATH_RELATION_FRAGMENT = re.compile(
     r"\s*[^,\n，。、；;:：！？!?（）()]{1,80}"
     r")"
 )
+_TOKENIZED_MATH_RELATION = re.compile(
+    r"(?<![$\\A-Za-z0-9_])"
+    r"("
+    r"(?:(?:\\[A-Za-z]+(?:\{[^{}\n]*\})?|\{[^{}\n]{1,80}\}|[A-Za-z]+_[A-Za-z0-9]+|[A-Za-z](?![A-Za-z])(?:\([^()\n]{0,100}\)|\[[^\]\n]{0,100}\])?|[A-Za-z](?![A-Za-z])|[0-9]+|[{}()[\]|_^+\-*/.,]|[≤≥≠∈∉∀∃⊂⊆∪∩πφψθαβγδλμω∞ΠΣ𝔼ℙ→↦≡≅∧∨])\s*){1,18}"
+    r"(?:=|≤|≥|≠|<|>|∈|∉|⊂|⊆|∣|→|↦|≡|≈|\\in|\\notin|\\subseteq|\\subset|\\to|\\mapsto|\\leq|\\geq|\\neq|\\mid)"
+    r"(?:\s*(?:\\[A-Za-z]+(?:\{[^{}\n]*\})?|\{[^{}\n]{1,80}\}|[A-Za-z]+_[A-Za-z0-9]+|[A-Za-z](?![A-Za-z])(?:\([^()\n]{0,100}\)|\[[^\]\n]{0,100}\])?|[A-Za-z](?![A-Za-z])|[0-9]+|[{}()[\]|_^+\-*/.,]|[≤≥≠∈∉∀∃⊂⊆∪∩πφψθαβγδλμω∞ΠΣ𝔼ℙ→↦≡≅∧∨])){1,24}"
+    r")"
+)
 _UNICODE_MATH_MAP = {
     "∈": r" \in ",
     "∉": r" \notin ",
@@ -81,6 +89,11 @@ _UNICODE_MATH_MAP = {
     "≡": r" \equiv ",
     "≈": r" \approx ",
     "Δ": r"\Delta",
+    "∞": r"\infty",
+    "Π": r"\Pi",
+    "Σ": r"\Sigma",
+    "𝔼": r"\mathbb{E}",
+    "ℙ": r"\mathbb{P}",
 }
 
 
@@ -170,6 +183,8 @@ def ensure_inline_math(s: Any) -> Any:
 
     def _normalize_math_fragment(fragment: str) -> str:
         out = fragment
+        out = re.sub(r"Π(?=\s*[_^])", r"\\prod", out)
+        out = re.sub(r"Σ(?=\s*[_^])", r"\\sum", out)
         for raw, latex in _UNICODE_MATH_MAP.items():
             out = out.replace(raw, latex)
         out = _WS.sub(" ", out)
@@ -177,6 +192,9 @@ def ensure_inline_math(s: Any) -> Any:
 
     protected = _PROTECTED_INLINE.sub(_stash, s)
     protected = _MATH_COMMAND.sub(lambda m: f"${_normalize_math_fragment(m.group(1))}$", protected)
+    protected = _MATH_BLOCK.sub(_stash, protected)
+    protected = _TOKENIZED_MATH_RELATION.sub(lambda m: f"${_normalize_math_fragment(m.group(1))}$", protected)
+    protected = _MATH_BLOCK.sub(_stash, protected)
     protected = _MATH_RELATION_FRAGMENT.sub(lambda m: f"${_normalize_math_fragment(m.group(1))}$", protected)
 
     for idx, block in enumerate(placeholders):
