@@ -25,7 +25,7 @@ import json
 import logging
 import re
 import contextvars
-from typing import AsyncIterator, Optional, Union
+from typing import Any, AsyncIterator, Optional, Union
 
 
 def _fix_latex_json(text: str) -> str:
@@ -40,7 +40,7 @@ def _fix_latex_json(text: str) -> str:
         return text
     return re.sub(r'(?<!\\)\\([A-Za-z]{2,})', r'\\\\\1', text)
 
-from openai import AsyncOpenAI
+from openai import AsyncOpenAI, BadRequestError
 
 from .config import llm_cfg
 
@@ -106,6 +106,58 @@ def _effective_model(model: Optional[str] = None) -> str:
         return _normalize_model(model)
     request_cfg = _request_config.get() or {}
     return _normalize_model(request_cfg.get("model") or _config_override.get("model") or llm_cfg().get("model", "gpt-4o"))
+
+
+_MAX_COMPLETION_TOKENS_MODEL_PREFIXES = ("gpt-5", "o1", "o3", "o4")
+
+
+def _token_limit_kwargs(model: str, max_tokens: int) -> dict[str, int]:
+    """Return the token-limit parameter supported by the selected model family."""
+    model_l = (model or "").lower()
+    if model_l.startswith(_MAX_COMPLETION_TOKENS_MODEL_PREFIXES):
+        return {"max_completion_tokens": max_tokens}
+    return {"max_tokens": max_tokens}
+
+
+def _alternate_token_limit_kwargs(kwargs: dict[str, Any], max_tokens: int) -> dict[str, Any]:
+    """Swap max_tokens/max_completion_tokens while preserving all other kwargs."""
+    retry_kwargs = dict(kwargs)
+    if "max_tokens" in retry_kwargs:
+        retry_kwargs.pop("max_tokens", None)
+        retry_kwargs["max_completion_tokens"] = max_tokens
+    else:
+        retry_kwargs.pop("max_completion_tokens", None)
+        retry_kwargs["max_tokens"] = max_tokens
+    return retry_kwargs
+
+
+def _is_token_limit_param_error(exc: Exception) -> bool:
+    """Detect OpenAI-compatible gateways rejecting the chosen token-limit name."""
+    if not isinstance(exc, BadRequestError):
+        return False
+    msg = str(exc).lower()
+    return (
+        ("unsupported parameter" in msg or "unsupported_parameter" in msg)
+        and ("max_tokens" in msg or "max completion tokens" in msg or "max_completion_tokens" in msg)
+    )
+
+
+async def _create_chat_completion(client: AsyncOpenAI, *, max_tokens: int, **kwargs: Any):
+    """Create a chat completion, retrying once with the alternate token-limit parameter."""
+    model = str(kwargs.get("model") or "")
+    request_kwargs = {**kwargs, **_token_limit_kwargs(model, max_tokens)}
+    try:
+        return await client.chat.completions.create(**request_kwargs)
+    except Exception as exc:
+        if not _is_token_limit_param_error(exc):
+            raise
+        retry_kwargs = _alternate_token_limit_kwargs(request_kwargs, max_tokens)
+        logger.info(
+            "Retrying chat.completions.create with %s for model=%s",
+            "max_completion_tokens" if "max_completion_tokens" in retry_kwargs else "max_tokens",
+            model,
+        )
+        return await client.chat.completions.create(**retry_kwargs)
 
 
 def set_request_config(cfg: dict):
@@ -236,7 +288,8 @@ async def chat(
     last_content = ""
     for attempt in range(_retries + 1):
         try:
-            resp = await client.chat.completions.create(
+            resp = await _create_chat_completion(
+                client,
                 model=_model,
                 messages=messages,
                 temperature=temperature,
@@ -277,7 +330,8 @@ async def stream_chat(
     """
     client = get_client()
     messages = _build_messages(user_message, system=system, extra_messages=extra_messages)
-    stream = await client.chat.completions.create(
+    stream = await _create_chat_completion(
+        client,
         model=_effective_model(model),
         messages=messages,
         temperature=temperature,
@@ -318,7 +372,8 @@ async def stream_chat_with_reasoning(
     messages = _build_messages(user_message, system=system, extra_messages=extra_messages)
 
     try:
-        stream = await client.chat.completions.create(
+        stream = await _create_chat_completion(
+            client,
             model=_effective_model(model),
             messages=messages,
             temperature=temperature,
@@ -328,7 +383,8 @@ async def stream_chat_with_reasoning(
         )
     except Exception:
         # 若 LLM 不支持 extra_body（如部分轻量代理），降级为不携带 reasoning 字段
-        stream = await client.chat.completions.create(
+        stream = await _create_chat_completion(
+            client,
             model=_effective_model(model),
             messages=messages,
             temperature=temperature,
@@ -377,7 +433,8 @@ async def chat_json(
     # ── Phase 1: JSON mode（2 次尝试，原 3 次）──────────────────────────────
     for attempt in range(2):
         try:
-            resp = await client.chat.completions.create(
+            resp = await _create_chat_completion(
+                client,
                 model=_model,
                 messages=messages,
                 temperature=0.1,
@@ -405,7 +462,8 @@ async def chat_json(
     text = "{}"
     for attempt in range(2):
         try:
-            resp = await client.chat.completions.create(
+            resp = await _create_chat_completion(
+                client,
                 model=_model,
                 messages=messages_fallback,
                 temperature=0.1,
