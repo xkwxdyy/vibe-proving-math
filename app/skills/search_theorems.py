@@ -41,11 +41,30 @@ _LATEX_NOISE_PATTERNS = [
     # 只删除文档结构相关的环境，保留数学环境（如equation, align, sequence等）
     re.compile(r"\\begin\{(?:document|abstract|center|flushleft|flushright|minipage|figure|table|tabular|verbatim|comment)\*?\}"),
     re.compile(r"\\end\{(?:document|abstract|center|flushleft|flushright|minipage|figure|table|tabular|verbatim|comment)\*?\}"),
-    re.compile(r"\\(?:label|cite|ref|footnote|index)\{[^}]*\}"),
+    re.compile(r"\\(?:label|cite|citep|citet|footnote|index)\s*\{[^}]*\}"),
     re.compile(r"%[^\n]*"),                          # LaTeX 行内注释
 ]
 _WHITESPACE_RE = re.compile(r"[ \t]+")
 _NEWLINE_RE = re.compile(r"\n{3,}")
+_EMPTY_PARENS_RE = re.compile(r"\(\s*\)")
+
+
+def _format_ref_label(label: str, *, parens: bool) -> str:
+    label = (label or "").strip()
+    if re.fullmatch(r"\d+(?:\.\d+)*", label):
+        return f"({label})" if parens else label
+    return ""
+
+
+def _fix_common_ocr_latex(text: str) -> str:
+    """Repair conservative OCR mistakes seen in theorem-search snippets."""
+    if not text:
+        return text
+    out = text
+    out = re.sub(r"\\to\s*\\i(?![A-Za-z])", r"\\to \\infty", out)
+    out = re.sub(r"\\lim_\{([^{}]*)\\to\s*\\i\s*\}", r"\\lim_{\1\\to \\infty}", out)
+    out = re.sub(r"\\lim_([A-Za-z0-9]+)\\to\s*\\i(?![A-Za-z])", r"\\lim_{\1\\to \\infty}", out)
+    return out
 
 
 def _clean_latex_noise(text: str) -> str:
@@ -56,9 +75,20 @@ def _clean_latex_noise(text: str) -> str:
     """
     if not text:
         return text
-    out = text
+    out = _fix_common_ocr_latex(text)
+    out = re.sub(
+        r"\\eqref\s*\{([^{}]*)\}",
+        lambda m: _format_ref_label(m.group(1), parens=True),
+        out,
+    )
+    out = re.sub(
+        r"\\ref\s*\{([^{}]*)\}",
+        lambda m: _format_ref_label(m.group(1), parens=False),
+        out,
+    )
     for pat in _LATEX_NOISE_PATTERNS:
         out = pat.sub(" ", out)
+    out = _EMPTY_PARENS_RE.sub(" ", out)
     out = _WHITESPACE_RE.sub(" ", out)
     out = _NEWLINE_RE.sub("\n\n", out).strip()
     return out

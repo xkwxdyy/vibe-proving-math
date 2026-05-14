@@ -156,6 +156,21 @@ def fix_digit_sequences(text: str) -> str:
     return re.sub(r'\$\$\n(.*?)\n\$\$', fix_display, text, flags=re.DOTALL)
 
 
+# ── 修复 5：常见 LaTeX OCR 别名 / 残缺命令 ─────────────────────────────────
+
+def fix_latex_ocr_aliases(text: str) -> str:
+    r"""修复保守的 LaTeX OCR 错误，如 ``\ol`` 和 ``\to \i``."""
+    if not text:
+        return text
+    text = re.sub(r'\\begin\s+\{', r'\\begin{', text)
+    text = re.sub(r'\\end\s+\{', r'\\end{', text)
+    text = re.sub(r'\\ol\b', r'\\overline', text)
+    text = re.sub(r'\\to\s*\\i(?![A-Za-z])', r'\\to \\infty', text)
+    text = re.sub(r'\\lim_\{([^{}]*)\\to\s*\\i\s*\}', r'\\lim_{\1\\to \\infty}', text)
+    text = re.sub(r'\\lim_([A-Za-z0-9]+)\\to\s*\\i(?![A-Za-z])', r'\\lim_{\1\\to \\infty}', text)
+    return text
+
+
 # ── 主修复入口 ────────────────────────────────────────────────────────────────
 
 def fix_all(text: str) -> str:
@@ -164,6 +179,7 @@ def fix_all(text: str) -> str:
     text = fix_spaced_text_commands(text)
     text = fix_missing_arrows(text)
     text = fix_digit_sequences(text)
+    text = fix_latex_ocr_aliases(text)
     return text
 
 

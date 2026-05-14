@@ -882,20 +882,55 @@ function _normalizeUnicodeSubSup(text) {
 function _sanitizeMathBlock(mathStr) {
   if (!mathStr) return mathStr;
   return String(mathStr)
+    // Common shorthand from OCR / TeX sources; KaTeX does not define \ol.
+    .replace(/\\ol\b/g, '\\overline')
+    // KaTeX auto-render receives only the math payload, not display environments.
+    .replace(/\\begin\s*\{\s*(?:equation|eqnarray|align)\*?\s*\}/g, ' ')
+    .replace(/\\end\s*\{\s*(?:equation|eqnarray|align)\*?\s*\}/g, ' ')
+    .replace(/\\begin\s*\{\s*(?:enumerate|itemize)\s*\}|\\end\s*\{\s*(?:enumerate|itemize)\s*\}|\\item\b/g, ' ')
     // Remove literal escaped newlines that leak into formulas, e.g. `\nf(n)`.
     // Keep real LaTeX commands that start with n, such as \nu, \nabla, \neq, \notin.
     .replace(/\\+n(?!u\b|abla\b|e(?:q)?\b|ot(?:in)?\b|i\b)\s*/g, '')
     // OCR/LLM sometimes emits `|to|` instead of `\to`.
     .replace(/\|to\|/g, ' \\to ')
     .replace(/\|mapsto\|/g, ' \\mapsto ')
+    // OCR may turn the conditional bar in `P(x_i|xpa_i)` into an unknown command.
+    .replace(/\\xpa\b/g, ' \\mid xpa')
+    // Normalize Unicode math before KaTeX sees it.
+    .replace(/𝔼/g, '\\mathbb{E}')
+    .replace(/ℙ/g, '\\mathbb{P}')
+    .replace(/Π(?=\s*[_^])/g, '\\prod')
+    .replace(/Σ(?=\s*[_^])/g, '\\sum')
+    .replace(/Π/g, '\\Pi')
+    .replace(/Σ/g, '\\Sigma')
+    .replace(/∞/g, '\\infty')
+    .replace(/∈/g, '\\in')
+    .replace(/∉/g, '\\notin')
+    .replace(/≤/g, '\\leq')
+    .replace(/≥/g, '\\geq')
+    .replace(/≠/g, '\\neq')
+    .replace(/→/g, '\\to')
+    .replace(/↦/g, '\\mapsto')
+    .replace(/⊂/g, '\\subset')
+    .replace(/⊆/g, '\\subseteq')
+    .replace(/∣/g, '\\mid')
+    .replace(/≡/g, '\\equiv')
+    .replace(/≈/g, '\\approx')
     // Recover common LaTeX commands that lost the leading backslash inside math.
-    .replace(/(?<!\\)\b(mathbb|mathcal|mathfrak|mathrm|mathbf|mathit|mathsf|mathtt|operatorname|frac|sqrt|sum|prod|int|lim|to|mapsto|in|notin|subset|subseteq|cup|cap|leq|geq|neq|forall|exists|infty|cdot|times)\b/g, '\\$1');
+    .replace(/(?<!\\)\b(mathbb|mathcal|mathfrak|mathrm|mathbf|mathit|mathsf|mathtt|operatorname|frac|sqrt|sum|prod|int|lim|to|mapsto|in|notin|subset|subseteq|cup|cap|leq|geq|neq|forall|exists|infty|cdot|times|overline)\b/g, '\\$1');
 }
 
 function sanitizeLatex(text) {
   if (!text) return text;
   // 0) Unicode 上下标归一化
   text = _normalizeUnicodeSubSup(text);
+  text = String(text)
+    .replace(/\\ol\b/g, '\\overline')
+    .replace(/\\begin\s+\{/g, '\\begin{')
+    .replace(/\\end\s+\{/g, '\\end{')
+    .replace(/\\begin\s*\{\s*(equation|eqnarray|align)(\*)?\s*\}([\s\S]*?)\\end\s*\{\s*\1\2\s*\}/g,
+      (_, _env, _star, inner) => `$$${_sanitizeMathBlock(inner)}$$`)
+    .replace(/\\begin\s*\{\s*(?:enumerate|itemize)\s*\}|\\end\s*\{\s*(?:enumerate|itemize)\s*\}|\\item\b/g, ' ');
   // 1) 修 `$...$` / `$$...$$` 内部的 `\cmd{X}{sub}` → `\cmd{X}_{sub}`
   //    LLM 常把下标漏写为第二个 `{...}`（如 `\mathcal{C}{cf}`、`\mathbb{R}{n}`），
   //    KaTeX 会把第二个 {} 当作错误的额外参数。仅在 \mathcal/\mathbb/\mathfrak 这类
@@ -935,6 +970,9 @@ const _LATEX_NESTED_CMDS = new Set([
   'hat','bar','tilde','vec','dot','ddot','prime','left','right',
   'binom','dfrac','tfrac','choose','overset','underset','stackrel'
 ]);
+const _LATEX_ACCENT_CMDS = new Set([
+  'overline','underline','widehat','widetilde','hat','bar','tilde','vec','dot','ddot'
+]);
 function _wrapLatexCommandsWithNestedBraces(text) {
   if (!text || text.indexOf('\\') < 0) return text;
   let out = '';
@@ -970,8 +1008,37 @@ function _wrapLatexCommandsWithNestedBraces(text) {
         consumedAny = true;
       }
     }
+    if (!consumedAny && _LATEX_ACCENT_CMDS.has(cmd)) {
+      while (j < text.length && /\s/.test(text[j])) j++;
+      if (text[j] === '\\') {
+        const next = text.slice(j).match(/^\\([A-Za-z]+)/);
+        if (next) {
+          j += 1 + next[1].length;
+          while (j < text.length && (text[j] === '{' || text[j] === '_' || text[j] === '^')) {
+            if (text[j] === '_' || text[j] === '^') {
+              j++;
+              if (text[j] === '{') {
+                const end = _matchBrace(text, j);
+                if (end < 0) break;
+                j = end + 1;
+              } else if (/[A-Za-z0-9Ͱ-Ͽ]/.test(text[j] || '')) {
+                j++;
+              } else { break; }
+            } else {
+              const end = _matchBrace(text, j);
+              if (end < 0) break;
+              j = end + 1;
+            }
+          }
+          consumedAny = true;
+        }
+      } else if (/[A-Za-zΑ-Ωα-ω]/.test(text[j] || '')) {
+        j++;
+        consumedAny = true;
+      }
+    }
     const piece = text.slice(i, j);
-    out += `$${piece}$`;
+    out += _wrapInlineMathPayload(piece);
     i = j;
   }
   return out;
@@ -986,6 +1053,11 @@ function _matchBrace(s, openIdx) {
     else if (c === '}') { depth--; if (depth === 0) return k; }
   }
   return -1;
+}
+
+function _wrapInlineMathPayload(expr) {
+  const cleaned = _sanitizeMathBlock(String(expr || '').trim()).replace(/\s+/g, ' ').trim();
+  return cleaned ? `$${cleaned}$` : expr;
 }
 
 function autoWrapMath(text) {
@@ -1019,21 +1091,19 @@ function autoWrapMath(text) {
 
   // 1b) 兜底：纯 `\cmd` 无参形式（如 \alpha、\cdot、\to）
   // 末尾用 (?!\[a-zA-Z]) 替代 \b，使 \chi_\sigma 这类「命令+下标」也能被包进 $...$
-  s = s.replace(/(?<![\\$\w])(\\(?:frac|sqrt|sum|prod|int|lim|sup|inf|mathbb|mathcal|mathfrak|mathrm|mathbf|mathit|operatorname|forall|exists|in|notin|subset|subseteq|cup|cap|leq|geq|neq|to|mapsto|Rightarrow|Leftrightarrow|alpha|beta|gamma|delta|epsilon|varepsilon|zeta|eta|theta|vartheta|iota|kappa|lambda|mu|nu|xi|pi|rho|sigma|tau|upsilon|phi|varphi|chi|psi|omega|Gamma|Delta|Theta|Lambda|Xi|Pi|Sigma|Phi|Psi|Omega|infty|partial|nabla|cdot|cdots|ldots|times|div|pm|mp|approx|equiv|sim|propto|circ|prime)(?:\{[^{}]*\}|(?![a-zA-Z])))/g,
+  s = s.replace(/(?<![\\$\w])(\\(?:frac|sqrt|sum|prod|int|lim|sup|inf|mathbb|mathcal|mathfrak|mathrm|mathbf|mathit|operatorname|overline|forall|exists|in|notin|subset|subseteq|cup|cap|leq|geq|neq|to|mapsto|Rightarrow|Leftrightarrow|alpha|beta|gamma|delta|epsilon|varepsilon|zeta|eta|theta|vartheta|iota|kappa|lambda|mu|nu|xi|pi|rho|sigma|tau|upsilon|phi|varphi|chi|psi|omega|Gamma|Delta|Theta|Lambda|Xi|Pi|Sigma|Phi|Psi|Omega|infty|partial|nabla|cdot|cdots|ldots|times|div|pm|mp|approx|equiv|sim|propto|circ|prime)(?:\{[^{}]*\}|(?![a-zA-Z])))/g,
     '$$$1$$');
 
-  // 2) 含数学符号的小段（限定 ≤30 字符，避免吞掉整句）
-  s = s.replace(/([A-Za-z0-9_()\s.,]*[≤≥≠∈∉∀∃⊂⊆∪∩πφψθαβγδλμω∞→↦≡≅∧∨][^\n。.;]{0,30})/g,
-    (m) => {
-      // 已含 $ 跳过
-      if (m.includes('$')) return m;
-      // 必须有数学符号
-      if (!/[≤≥≠∈∉∀∃⊂⊆∪∩πφψθαβγδλμω∞→↦≡≅∧∨]/.test(m)) return m;
-      const trimmed = m.trim();
-      const lead = m.match(/^\s*/)[0];
-      const tail = m.match(/\s*$/)[0];
-      return `${lead}$${trimmed}$${tail}`;
+  // 2) 含数学符号/关系符的小段。只允许数学 token 组成表达式，避免吞掉整句英文。
+  {
+    const atom = String.raw`(?:\\[A-Za-z]+(?:\{[^{}\n]*\})?|\{[^{}\n]{1,80}\}|[A-Za-z]+_[A-Za-z0-9]+|[A-Za-z](?![A-Za-z])\s*(?:\([^()\n]{0,100}\)|\[[^\]\n]{0,100}\])?|[A-Za-z](?![A-Za-z])|[0-9]+|[{}()[\]|_^+\-*/.,]|[≤≥≠∈∉∀∃⊂⊆∪∩πφψθαβγδλμω∞ΠΣ𝔼ℙ→↦≡≅∧∨])`;
+    const rel = String.raw`(?:=|≤|≥|≠|<|>|∈|∉|⊂|⊆|∣|→|↦|≡|≈|\\in|\\notin|\\subseteq|\\subset|\\to|\\mapsto|\\leq|\\geq|\\neq|\\mid)`;
+    const relationRe = new RegExp(String.raw`(^|[^$\\A-Za-z0-9_])((?:${atom}\s*){1,18}${rel}(?:\s*${atom}){1,24})`, 'g');
+    s = s.replace(relationRe, (full, pre, expr) => {
+      if (expr.includes('$')) return full;
+      return `${pre}${_wrapInlineMathPayload(expr)}`;
     });
+  }
 
   // 3) "var = expr"（左 1-3 字符标识符，右含 +/-/*/^/数字）— 仅当行内独立段
   s = s.replace(/(^|[\s(])([A-Za-z][A-Za-z0-9_']{0,3}\s*=\s*[A-Za-z0-9_+\-*/^()\\\s]{1,40})(?=[\s,;.)。，；]|$)/gm,
@@ -1043,7 +1113,7 @@ function autoWrapMath(text) {
       if (!/[+\-*/^]|\d/.test(expr)) return full;
       // 不要包裹 markdown 列表/标题前缀
       if (/^[#\->*]/.test(expr.trim())) return full;
-      return `${pre}$${expr.trim()}$`;
+      return `${pre}${_wrapInlineMathPayload(expr)}`;
     });
 
   // 4) plan F.3 (T55)：含 ^ 上标的方程式 — 形如 a^2 + b^2 = c^2、x^n - y^n
@@ -1051,7 +1121,7 @@ function autoWrapMath(text) {
   s = s.replace(/(^|[^A-Za-z0-9_$\\^])([A-Za-z]\^[0-9A-Za-z]+(?:\s*[+\-*/=]\s*[A-Za-z0-9]+\^?[0-9A-Za-z]*){1,6})(?=[^A-Za-z0-9_$\\^]|$)/g,
     (full, pre, expr) => {
       if (expr.includes('$')) return full;
-      return `${pre}$${expr.trim()}$`;
+      return `${pre}${_wrapInlineMathPayload(expr)}`;
     });
 
   // 把规则 4 产生的新 $...$ 也加入 placeholder 保护，避免规则 5 误嵌套
@@ -1062,7 +1132,7 @@ function autoWrapMath(text) {
   s = s.replace(/(^|[^A-Za-z0-9_$\\])((?:[A-Za-z0-9]|\([A-Za-z0-9+\-*/\s]{1,12}\))\^(?:[A-Za-z0-9]|\{[A-Za-z0-9+\-*/\s,]{1,12}\}))(?=[^A-Za-z0-9_$\\^]|$)/g,
     (full, pre, expr) => {
       if (expr.includes('$')) return full;
-      return `${pre}$${expr.trim()}$`;
+      return `${pre}${_wrapInlineMathPayload(expr)}`;
     });
 
   // 还原 placeholders
@@ -4534,15 +4604,21 @@ function autoWrapReviewMath(text) {
 
   s = _wrapLatexCommandsWithNestedBraces(s);
   // 末尾用 (?![a-zA-Z]) 替代 \b，使 \chi_\sigma 这类「命令+下标」也能被包进 $...$
-  s = s.replace(/(?<![\\$\w])(\\(?:frac|sqrt|sum|prod|int|lim|sup|inf|mathbb|mathcal|mathfrak|mathrm|mathbf|mathit|operatorname|forall|exists|in|notin|subset|subseteq|cup|cap|leq|geq|neq|to|mapsto|mid|alpha|beta|gamma|delta|epsilon|varepsilon|zeta|eta|theta|vartheta|iota|kappa|lambda|mu|nu|xi|pi|rho|sigma|tau|upsilon|phi|varphi|chi|psi|omega|Gamma|Delta|Theta|Lambda|Xi|Pi|Sigma|Phi|Psi|Omega|infty|partial|nabla|cdot|cdots|ldots|times|div|pm|mp|approx|equiv|sim|propto|circ|prime)(?:\{[^{}]*\}|(?![a-zA-Z])))/g,
+  s = s.replace(/(?<![\\$\w])(\\(?:frac|sqrt|sum|prod|int|lim|sup|inf|mathbb|mathcal|mathfrak|mathrm|mathbf|mathit|operatorname|overline|forall|exists|in|notin|subset|subseteq|cup|cap|leq|geq|neq|to|mapsto|mid|alpha|beta|gamma|delta|epsilon|varepsilon|zeta|eta|theta|vartheta|iota|kappa|lambda|mu|nu|xi|pi|rho|sigma|tau|upsilon|phi|varphi|chi|psi|omega|Gamma|Delta|Theta|Lambda|Xi|Pi|Sigma|Phi|Psi|Omega|infty|partial|nabla|cdot|cdots|ldots|times|div|pm|mp|approx|equiv|sim|propto|circ|prime)(?:\{[^{}]*\}|(?![a-zA-Z])))/g,
     '$$$1$$');
 
   const wrap = (re) => {
-    s = s.replace(re, (m) => (m.includes('$') ? m : `$${m.trim()}$`));
+    s = s.replace(re, (m) => (m.includes('$') ? m : _wrapInlineMathPayload(m)));
   };
 
-  // Relation/congruence fragments like `p ≡ 1 (mod 4)` or `x^2 + y^2 = z^2`.
-  wrap(/(?<![$\\\w])(?:\|?[A-Za-z][A-Za-z0-9_]*\|?|\([^)]+\)|\{[^{}\n]{1,40}\})(?:\s*(?:\^|\_)\s*(?:\{[^{}]+\}|[A-Za-z0-9]+))?(?:\s*[+\-*/]\s*(?:\|?[A-Za-z0-9]+\|?|\([^)]+\)|\{[^{}\n]{1,30}\})){0,4}\s*(?:=|≡|≤|≥|<|>|∈|∉|⊂|⊆|∣|→|↦)\s*(?:[A-Za-z0-9\\][^,\n。；;:]*)/g);
+  // Relation/congruence fragments. Tokenized to avoid wrapping prose such as
+  // "Every martingale satisfying ..." together with the formula that follows.
+  {
+    const atom = String.raw`(?:\\[A-Za-z]+(?:\{[^{}\n]*\})?|\{[^{}\n]{1,80}\}|[A-Za-z]+_[A-Za-z0-9]+|[A-Za-z](?![A-Za-z])\s*(?:\([^()\n]{0,100}\)|\[[^\]\n]{0,100}\])?|[A-Za-z](?![A-Za-z])|[0-9]+|[{}()[\]|_^+\-*/.,]|[≤≥≠∈∉∀∃⊂⊆∪∩πφψθαβγδλμω∞ΠΣ𝔼ℙ→↦≡≅∧∨])`;
+    const rel = String.raw`(?:=|≤|≥|≠|<|>|∈|∉|⊂|⊆|∣|→|↦|≡|≈|\\in|\\notin|\\subseteq|\\subset|\\to|\\mapsto|\\leq|\\geq|\\neq|\\mid)`;
+    const relationRe = new RegExp(String.raw`(?<![$\\A-Za-z0-9_])(?:${atom}\s*){1,18}${rel}(?:\s*${atom}){1,24}`, 'g');
+    wrap(relationRe);
+  }
   // Short set-builder or ambient set expressions like `S = {(x, y, z) ∈ N^3 : ...}`.
   wrap(/(?<![$\\\w])(?:[A-Za-z][A-Za-z0-9_]*\s*=\s*\{[^{}\n]{1,120}\}|[A-Za-z][A-Za-z0-9_]*\s*:\s*[^,\n。；;:]{1,80}(?:→|↦)[^,\n。；;:]{1,40})/g);
   // Standalone cardinality / subgroup snippets.
