@@ -879,9 +879,55 @@ function _normalizeUnicodeSubSup(text) {
     });
 }
 
+function _looksLikeInlineMathFragment(text) {
+  const s = String(text || '').trim();
+  if (!s) return false;
+  if (/[一-龥]/.test(s)) return false;
+  return /(?:\\[A-Za-z]+|[_^{}=+\-*/<>≤≥∈∉∪∩]|[A-Za-z]\d|\d|[A-Za-z]_[A-Za-z0-9{])/.test(s);
+}
+
+function _repairMixedDollarMath(text) {
+  if (!text || !text.includes('$')) return text;
+  let s = text.replace(/\$([A-Za-z0-9_{}\\^=+\-*/,.|()\[\]\s]+?)(\s+)(?=[\u3400-\u9FFF])/g, (full, mathHead, space) => {
+    const head = mathHead.trim();
+    if (!_looksLikeInlineMathFragment(head)) return full;
+    return `$${head}$${space}`;
+  });
+  s = s.replace(/\$([^$\n\u3400-\u9FFF]+?)(\s+)(?=[\u3400-\u9FFF])/g, (full, mathHead, space) => {
+    const head = mathHead.trim();
+    if (!_looksLikeInlineMathFragment(head)) return full;
+    return `$${head}$${space}`;
+  });
+  return s.replace(/\$([^$\n]*[\u3400-\u9FFF][^$\n]*)\$/g, (full, inner) => {
+    const firstCjk = inner.search(/[\u3400-\u9FFF]/);
+    if (firstCjk <= 0) return full;
+
+    const mathHeadRaw = inner.slice(0, firstCjk);
+    const mathHead = mathHeadRaw.trim();
+    if (!_looksLikeInlineMathFragment(mathHead)) return full;
+
+    let prose = inner.slice(firstCjk);
+    const trailing = prose.match(/^(.*?)(\s+)([A-Za-z][A-Za-z0-9_]*(?:\s*[_^]\s*(?:\{[^{}]+\}|[A-Za-z0-9]+))?|\\[A-Za-z]+(?:\{[^{}]*\})?)\s*$/);
+    let tail = '';
+    if (trailing && /[\u3400-\u9FFF]/.test(trailing[1]) && _looksLikeInlineMathFragment(trailing[3])) {
+      prose = trailing[1] + trailing[2];
+      tail = `$${trailing[3].trim()}$`;
+    }
+    return `$${mathHead}$${prose}${tail}`;
+  });
+}
+
+function _normalizeCommonLatexMistakes(mathStr) {
+  let s = String(mathStr || '');
+  s = s.replace(/\\(sum|prod|lim|sup|inf|int)\{([^{}]+)\}/g, '\\$1_{$2}');
+  s = s.replace(/\\(chi|mu|phi|psi|alpha|beta|gamma|delta|lambda|sigma|theta|omega|varepsilon|epsilon)\{([^{}]+)\}/g, '\\$1_{$2}');
+  s = s.replace(/\\([A-Za-z]+)\s*\{/g, '\\$1{');
+  return s;
+}
+
 function _sanitizeMathBlock(mathStr) {
   if (!mathStr) return mathStr;
-  return String(mathStr)
+  return _normalizeCommonLatexMistakes(String(mathStr))
     // Common shorthand from OCR / TeX sources; KaTeX does not define \ol.
     .replace(/\\ol\b/g, '\\overline')
     // KaTeX auto-render receives only the math payload, not display environments.
@@ -922,6 +968,7 @@ function _sanitizeMathBlock(mathStr) {
 
 function sanitizeLatex(text) {
   if (!text) return text;
+  text = _repairMixedDollarMath(text);
   // 0) Unicode 上下标归一化
   text = _normalizeUnicodeSubSup(text);
   text = String(text)
@@ -935,10 +982,14 @@ function sanitizeLatex(text) {
   //    LLM 常把下标漏写为第二个 `{...}`（如 `\mathcal{C}{cf}`、`\mathbb{R}{n}`），
   //    KaTeX 会把第二个 {} 当作错误的额外参数。仅在 \mathcal/\mathbb/\mathfrak 这类
   //    "单参数命令" 后才修复，避免误伤 \frac 等多参数命令。
-  const fix = (mathStr) => _sanitizeMathBlock(mathStr).replace(
-    /(\\(?:mathcal|mathbb|mathfrak|mathrm|mathbf|mathit|mathsf|mathtt|operatorname)\{[^{}]+\})\{([^{}]+)\}/g,
-    '$1_{$2}'
-  );
+  const fix = (mathStr) => {
+    let out = _sanitizeMathBlock(mathStr);
+    out = out.replace(
+      /(\\(?:mathcal|mathbb|mathfrak|mathrm|mathbf|mathit|mathsf|mathtt|operatorname)\{[^{}]+\})\{([^{}]+)\}/g,
+      '$1_{$2}'
+    );
+    return out;
+  };
   let s = text;
   // $$...$$
   s = s.replace(/\$\$([\s\S]*?)\$\$/g, (m, inner) => `$$${fix(inner)}$$`);
@@ -968,11 +1019,109 @@ const _LATEX_NESTED_CMDS = new Set([
   'mathbb','mathcal','mathfrak','mathrm','mathbf','mathit','mathsf','mathtt',
   'operatorname','overline','underline','overbrace','underbrace','widehat','widetilde',
   'hat','bar','tilde','vec','dot','ddot','prime','left','right',
-  'binom','dfrac','tfrac','choose','overset','underset','stackrel'
+  'binom','dfrac','tfrac','choose','overset','underset','stackrel',
+  'det','dots','ldots','cdots','min','max','argmin','argmax','log','ln','exp','sin','cos','tan',
+  'arcsin','arccos','arctan','sinh','cosh','tanh','ker','dim','rank','span','tr'
 ]);
 const _LATEX_ACCENT_CMDS = new Set([
   'overline','underline','widehat','widetilde','hat','bar','tilde','vec','dot','ddot'
 ]);
+
+const _LATEX_BARE_RUN_CMDS = new Set([
+  ..._LATEX_NESTED_CMDS,
+  'forall','exists','in','notin','subset','subseteq','supset','supseteq','cup','cap','leq','le','geq','ge','neq',
+  'to','mapsto','Rightarrow','Leftarrow','Leftrightarrow','iff','mid','times','div','pm','mp','cdot',
+  'approx','equiv','sim','propto','circ','prime','partial','nabla','infty',
+  'alpha','beta','gamma','delta','epsilon','varepsilon','zeta','eta','theta','vartheta','iota','kappa',
+  'lambda','mu','nu','xi','pi','rho','sigma','tau','upsilon','phi','varphi','chi','psi','omega',
+  'Gamma','Delta','Theta','Lambda','Xi','Pi','Sigma','Phi','Psi','Omega'
+]);
+
+function _isLatexRunChar(ch) {
+  if (!ch || ch === '\n' || ch === '\r' || ch === '$' || ch === '`') return false;
+  if (/[\u3400-\u9FFF]/.test(ch)) return false;
+  return /[A-Za-z0-9\\{}()[\]_^=+\-*/.,;:|<>!'"~\s]/.test(ch) ||
+    /[≤≥≠∈∉⊂⊆⊃⊇∪∩∞→↦⇒⇐⇔±×÷·∧∨]/.test(ch);
+}
+
+function _trimBareLatexCandidate(candidate) {
+  let s = String(candidate || '');
+  let lead = s.match(/^\s*/)?.[0] || '';
+  let tail = s.match(/\s*$/)?.[0] || '';
+  s = s.trim();
+
+  const leadPunct = s.match(/^([,;:)\]}]+)(.*)$/);
+  if (leadPunct) {
+    lead += leadPunct[1];
+    s = leadPunct[2].trimStart();
+  }
+
+  const firstCmd = s.search(/\\[A-Za-z]+/);
+  if (firstCmd > 0) {
+    const prefix = s.slice(0, firstCmd);
+    const compactPrefix = prefix.trim();
+    const prefixLooksMath = !compactPrefix ||
+      /^[A-Za-z](?:['\d])?\s*$/.test(compactPrefix) ||
+      /[:=+\-*/_^{}()[\],]|[≤≥≠∈∉→↦⇒⇐⇔]/.test(compactPrefix);
+    if (!prefixLooksMath) {
+      lead += prefix;
+      s = s.slice(firstCmd);
+    }
+  }
+
+  const tailPunct = s.match(/^(.*?)([,;:.]+)$/);
+  if (tailPunct) {
+    s = tailPunct[1].trimEnd();
+    tail = tailPunct[2] + tail;
+  }
+
+  // In English prose, avoid swallowing explanatory words after a formula:
+  // "\alpha is positive" should become "$\alpha$ is positive", not one invalid math block.
+  const prose = /\s+(where|if|when|then|with|for|and|or|is|are|was|were|be|denotes|means|positive|negative|nonzero|real|complex|integer|vector|matrix|function|space)\b/i.exec(s);
+  if (prose && /[\\=+\-*/_^()[\],]|[≤≥≠∈∉→↦]/.test(s.slice(0, prose.index))) {
+    tail = s.slice(prose.index) + tail;
+    s = s.slice(0, prose.index).trimEnd();
+  }
+
+  return { lead, body: s, tail };
+}
+
+function _isBareLatexCandidate(candidate) {
+  const s = String(candidate || '').trim();
+  if (!s || s.includes('$') || /[\u3400-\u9FFF]/.test(s)) return false;
+  const cmds = [...s.matchAll(/\\([A-Za-z]+)/g)].map(m => m[1]);
+  if (!cmds.some(cmd => _LATEX_BARE_RUN_CMDS.has(cmd))) return false;
+  if (s.length > 420) return false;
+  if (cmds.length >= 2) return true;
+  return /(?:[_^=+\-*/(),;:[\]{}]|≤|≥|≠|∈|∉|→|↦)/.test(s);
+}
+
+function _wrapBareLatexRuns(text) {
+  if (!text || text.indexOf('\\') < 0) return text;
+  let out = '';
+  let i = 0;
+  while (i < text.length) {
+    if (!_isLatexRunChar(text[i])) {
+      out += text[i++];
+      continue;
+    }
+
+    let end = i;
+    while (end < text.length && _isLatexRunChar(text[end])) end++;
+    const raw = text.slice(i, end);
+    const { lead, body, tail } = _trimBareLatexCandidate(raw);
+    if (!_isBareLatexCandidate(body)) {
+      out += raw;
+      i = end;
+      continue;
+    }
+
+    out += `${lead}$${body}$${tail}`;
+    i = end;
+  }
+  return out;
+}
+
 function _wrapLatexCommandsWithNestedBraces(text) {
   if (!text || text.indexOf('\\') < 0) return text;
   let out = '';
@@ -1080,6 +1229,11 @@ function autoWrapMath(text) {
   s = protect(s, /https?:\/\/\S+/g);
 
   // 1) LaTeX 命令片段：\\command{...} 或 \\command（前后非字母数字时）
+  // 1a-0) LLM 常漏掉 `$...$`，尤其是 `\det(...)=...`。先按整段数学
+  //      token 包裹，避免 Markdown 把 `_i` 当作斜体语法。
+  s = _wrapBareLatexRuns(s);
+  s = protect(s, /\$[^$\n]+\$/g);
+
   // 1a) plan F.3 (T55)：含嵌套大括号的 LaTeX 命令（`\frac{a}{b+\sqrt{c}}` 等），
   //     用手工 brace matching 找完整片段后再包 $...$。
   s = _wrapLatexCommandsWithNestedBraces(s);
@@ -1091,10 +1245,10 @@ function autoWrapMath(text) {
 
   // 1b) 兜底：纯 `\cmd` 无参形式（如 \alpha、\cdot、\to）
   // 末尾用 (?!\[a-zA-Z]) 替代 \b，使 \chi_\sigma 这类「命令+下标」也能被包进 $...$
-  s = s.replace(/(?<![\\$\w])(\\(?:frac|sqrt|sum|prod|int|lim|sup|inf|mathbb|mathcal|mathfrak|mathrm|mathbf|mathit|operatorname|overline|forall|exists|in|notin|subset|subseteq|cup|cap|leq|geq|neq|to|mapsto|Rightarrow|Leftrightarrow|alpha|beta|gamma|delta|epsilon|varepsilon|zeta|eta|theta|vartheta|iota|kappa|lambda|mu|nu|xi|pi|rho|sigma|tau|upsilon|phi|varphi|chi|psi|omega|Gamma|Delta|Theta|Lambda|Xi|Pi|Sigma|Phi|Psi|Omega|infty|partial|nabla|cdot|cdots|ldots|times|div|pm|mp|approx|equiv|sim|propto|circ|prime)(?:\{[^{}]*\}|(?![a-zA-Z])))/g,
+  s = s.replace(/(?<![\\$\w])(\\(?:frac|sqrt|sum|prod|int|lim|sup|inf|det|dots|ldots|cdots|mathbb|mathcal|mathfrak|mathrm|mathbf|mathit|operatorname|forall|exists|in|notin|subset|subseteq|cup|cap|leq|geq|neq|to|mapsto|Rightarrow|Leftrightarrow|alpha|beta|gamma|delta|epsilon|varepsilon|zeta|eta|theta|vartheta|iota|kappa|lambda|mu|nu|xi|pi|rho|sigma|tau|upsilon|phi|varphi|chi|psi|omega|Gamma|Delta|Theta|Lambda|Xi|Pi|Sigma|Phi|Psi|Omega|infty|partial|nabla|cdot|times|div|pm|mp|approx|equiv|sim|propto|circ|prime)(?:\{[^{}]*\}|(?![a-zA-Z])))/g,
     '$$$1$$');
 
-  // 2) 含数学符号/关系符的小段。只允许数学 token 组成表达式，避免吞掉整句英文。
+  // 2) 含数学符号/关系符的小段。只允许数学 token 组成表达式，避免吞掉整句文字。
   {
     const atom = String.raw`(?:\\[A-Za-z]+(?:\{[^{}\n]*\})?|\{[^{}\n]{1,80}\}|[A-Za-z]+_[A-Za-z0-9]+|[A-Za-z](?![A-Za-z])\s*(?:\([^()\n]{0,100}\)|\[[^\]\n]{0,100}\])?|[A-Za-z](?![A-Za-z])|[0-9]+|[{}()[\]|_^+\-*/.,]|[≤≥≠∈∉∀∃⊂⊆∪∩πφψθαβγδλμω∞ΠΣ𝔼ℙ→↦≡≅∧∨])`;
     const rel = String.raw`(?:=|≤|≥|≠|<|>|∈|∉|⊂|⊆|∣|→|↦|≡|≈|\\in|\\notin|\\subseteq|\\subset|\\to|\\mapsto|\\leq|\\geq|\\neq|\\mid)`;
@@ -1149,14 +1303,80 @@ function autoWrapMath(text) {
 const _MD_CACHE = new Map();
 const _MD_CACHE_MAX = 200;
 
+function _renderLatexHtml(expr, displayMode) {
+  const source = _normalizeCommonLatexMistakes(String(expr || '').trim());
+  if (!source) return '';
+  if (typeof katex === 'undefined') {
+    const raw = displayMode ? `$$${source}$$` : `$${source}$`;
+    return escapeHtml(raw);
+  }
+  try {
+    return katex.renderToString(source, {
+      displayMode: !!displayMode,
+      throwOnError: false,
+      output: 'html',
+    });
+  } catch {
+    return `<code class="latex-fallback" title="LaTeX 解析失败">${escapeHtml(source)}</code>`;
+  }
+}
+
+function _mathPlaceholder(i, displayMode = false) {
+  return displayMode ? `<div data-vp-math="${i}"></div>` : `<span data-vp-math="${i}"></span>`;
+}
+
+function _protectMathBeforeMarked(text) {
+  let s = autoWrapMath(normalizeEscapedNewlines(text || ''));
+  const protectedCode = [];
+  const renderedMath = [];
+  const maskCode = (re) => {
+    s = s.replace(re, (m) => {
+      protectedCode.push(m);
+      return `\u0001CODE${protectedCode.length - 1}\u0001`;
+    });
+  };
+  maskCode(/```[\s\S]*?```/g);
+  maskCode(/`[^`\n]+`/g);
+
+  s = s
+    .replace(/\$\$([\s\S]*?)\$\$/g, (_, expr) => {
+      renderedMath.push(_renderLatexHtml(expr, true));
+      return `\n\n${_mathPlaceholder(renderedMath.length - 1, true)}\n\n`;
+    })
+    .replace(/\\\[([\s\S]*?)\\\]/g, (_, expr) => {
+      renderedMath.push(_renderLatexHtml(expr, true));
+      return `\n\n${_mathPlaceholder(renderedMath.length - 1, true)}\n\n`;
+    })
+    .replace(/\$([^$\n]+?)\$/g, (_, expr) => {
+      renderedMath.push(_renderLatexHtml(expr, false));
+      return _mathPlaceholder(renderedMath.length - 1);
+    })
+    .replace(/\\\(([\s\S]*?)\\\)/g, (_, expr) => {
+      renderedMath.push(_renderLatexHtml(expr, false));
+      return _mathPlaceholder(renderedMath.length - 1);
+    });
+
+  s = s.replace(/\u0001CODE(\d+)\u0001/g, (_, i) => protectedCode[+i] || '');
+  return { markdown: s, renderedMath };
+}
+
+function _restoreRenderedMath(html, renderedMath) {
+  if (!Array.isArray(renderedMath) || !renderedMath.length) return html;
+  return String(html || '').replace(
+    /<(span|div)\s+data-vp-math=(?:"|&quot;)?(\d+)(?:"|&quot;)?\s*><\/\1>/g,
+    (_, _tag, i) => renderedMath[+i] || ''
+  );
+}
+
 function _renderOneSegment(seg) {
   if (!seg) return '';
   seg = normalizeEscapedNewlines(seg);
   if (_MD_CACHE.has(seg)) return _MD_CACHE.get(seg);
   let html;
   try {
+    const protectedMath = _protectMathBeforeMarked(seg);
     html = typeof marked !== 'undefined'
-      ? marked.parse(preRenderDisplayMath(autoWrapMath(seg)))
+      ? _restoreRenderedMath(marked.parse(protectedMath.markdown), protectedMath.renderedMath)
       : `<p>${escapeHtml(seg).replace(/\n/g, '<br>')}</p>`;
   } catch {
     html = `<pre>${escapeHtml(seg)}</pre>`;
@@ -1190,7 +1410,8 @@ function renderStreamingMarkdown(text) {
     const isTrailing = (i === parts.length - 1) && !text.endsWith('\n\n');
     if (isTrailing) {
       try {
-        out += marked.parse(preRenderDisplayMath(autoWrapMath(p)));
+        const protectedMath = _protectMathBeforeMarked(p);
+        out += _restoreRenderedMath(marked.parse(protectedMath.markdown), protectedMath.renderedMath);
       } catch {
         out += `<pre>${escapeHtml(p)}</pre>`;
       }
@@ -1304,7 +1525,7 @@ window.copyCodeBlock = function(btn) {
   const pre = btn.closest('.code-block-wrapper')?.querySelector('pre');
   if (!pre) return;
   const text = pre.innerText || pre.textContent || '';
-  navigator.clipboard.writeText(text).then(() => {
+  writeClipboardText(text).then(() => {
     btn.textContent = t('ui.copied');
     btn.classList.add('copied');
     setTimeout(() => { btn.textContent = t('ui.copy'); btn.classList.remove('copied'); }, 2000);
@@ -3376,6 +3597,128 @@ async function apiPost(endpoint, body) {
   return resp.json();
 }
 
+async function writeClipboardText(text) {
+  const value = String(text || '');
+  if (navigator.clipboard && window.isSecureContext) {
+    try {
+      await navigator.clipboard.writeText(value);
+      return true;
+    } catch (_) {
+      // Fall through to the textarea path for WebViews / permission-denied states.
+    }
+  }
+
+  const ta = document.createElement('textarea');
+  ta.value = value;
+  ta.setAttribute('readonly', '');
+  ta.style.position = 'fixed';
+  ta.style.top = '-1000px';
+  ta.style.left = '-1000px';
+  ta.style.width = '1px';
+  ta.style.height = '1px';
+  ta.style.opacity = '0';
+  document.body.appendChild(ta);
+  ta.focus();
+  ta.select();
+  ta.setSelectionRange(0, ta.value.length);
+  let ok = false;
+  try {
+    ok = document.execCommand('copy');
+  } catch (_) {
+    ok = false;
+  }
+  ta.remove();
+  if (!ok) throw new Error('copy failed');
+  return true;
+}
+
+function makeExportFilename(ext) {
+  const stamp = new Date().toISOString().slice(0, 19).replace(/[T:]/g, '-');
+  const mode = AppState.mode || 'message';
+  return `vibe-proving-${mode}-${stamp}.${ext}`;
+}
+
+function downloadTextFile(filename, text, mime) {
+  const blob = new Blob([String(text || '')], { type: mime || 'text/plain;charset=utf-8' });
+  downloadBlob(filename, blob);
+}
+
+function downloadBlob(filename, blob) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function htmlDocumentForPdf(title, markdown) {
+  const body = renderMarkdown(markdown || '');
+  const safeTitle = escapeHtml(title || 'vibe proving export');
+  return `<!doctype html>
+<html lang="${AppState.lang === 'zh' ? 'zh-CN' : 'en'}">
+<head>
+<meta charset="utf-8">
+<title>${safeTitle}</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
+<style>
+  body { margin: 0; background: #fff; color: #111827; font: 14px/1.75 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  main { max-width: 820px; margin: 0 auto; padding: 34px 38px 56px; }
+  h1, h2, h3 { line-height: 1.3; color: #111827; }
+  h1 { font-size: 24px; border-bottom: 1px solid #e5e7eb; padding-bottom: 10px; }
+  h2 { font-size: 19px; margin-top: 28px; }
+  p, li, blockquote { overflow-wrap: break-word; word-break: normal; }
+  .katex-display { overflow-x: auto; overflow-y: hidden; max-width: 100%; padding-bottom: 2px; }
+  .katex { white-space: nowrap; max-width: 100%; }
+  .katex-html { overflow: visible; }
+  pre { background: #f8fafc; border: 1px solid #e5e7eb; padding: 12px; overflow: auto; }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  blockquote { border-left: 3px solid #d1d5db; margin-left: 0; padding-left: 12px; color: #4b5563; }
+  table { border-collapse: collapse; width: 100%; }
+  th, td { border: 1px solid #e5e7eb; padding: 6px 8px; }
+  img { max-width: 100%; }
+  @media print {
+    main { padding: 0; max-width: none; }
+    .katex-display { white-space: normal; overflow: visible; }
+  }
+</style>
+</head>
+<body><main id="export-main">${body}</main>
+<script>
+window.addEventListener('load', function () {
+  var done = function () {
+    window.__vpExportReady = true;
+    window.dispatchEvent(new Event('vp-export-ready'));
+  };
+  if (window.renderMathInElement) {
+    renderMathInElement(document.getElementById('export-main'), {
+      delimiters: [
+        { left: '$$', right: '$$', display: true },
+        { left: '$', right: '$', display: false },
+        { left: '\\\\[', right: '\\\\]', display: true },
+        { left: '\\\\(', right: '\\\\)', display: false }
+      ],
+      throwOnError: false
+    });
+  }
+  done();
+});
+</script>
+</body>
+</html>`;
+}
+
+function extractDownloadFilename(resp, fallback) {
+  const cd = resp.headers.get('Content-Disposition') || '';
+  const m = /filename\*=UTF-8''([^;]+)|filename="?([^";]+)"?/i.exec(cd);
+  if (!m) return fallback;
+  try { return decodeURIComponent(m[1] || m[2]); } catch { return m[1] || m[2] || fallback; }
+}
+
 /* ─────────────────────────────────────────────────────────────
    12. 消息渲染
 ───────────────────────────────────────────────────────────── */
@@ -3395,9 +3738,11 @@ function addMessageActions(bubbleEl, rawText, opts = {}) {
     ${regenerateBtnHtml}
     <button class="msg-action-btn" onclick="copyMsgText(this)">⎘ ${t('ui.copy')}</button>
     <button class="msg-action-btn" onclick="saveMsgText(this)">⇩ ${t('ui.saveFile')}</button>
+    <button class="msg-action-btn msg-export-btn" onclick="downloadMsgMarkdown(this)" title="${AppState.lang === 'zh' ? '下载 Markdown' : 'Download Markdown'}">MD</button>
+    <button class="msg-action-btn msg-export-btn" onclick="exportMsgPdf(this)" title="${AppState.lang === 'zh' ? '导出 PDF' : 'Export PDF'}">PDF</button>
     ${latexBtnHtml}
   `;
-  actionsEl.dataset.rawText = rawText;
+  actionsEl._rawText = String(rawText || '');
   bubbleEl.appendChild(actionsEl);
 }
 
@@ -3411,6 +3756,11 @@ function _downloadTextFile(text, filename) {
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function updateMessageActionsRawText(bubbleEl, rawText) {
+  const actionsEl = bubbleEl?.querySelector('.msg-actions');
+  if (actionsEl) actionsEl._rawText = String(rawText || '');
 }
 
 window.triggerLatexFromBubble = function(btn) {
@@ -3437,8 +3787,8 @@ window.triggerLatexFromBubble = function(btn) {
 };
 
 window.copyMsgText = function(btn) {
-  const raw = btn.closest('.msg-actions')?.dataset.rawText || '';
-  navigator.clipboard.writeText(raw).then(() => {
+  const raw = btn.closest('.msg-actions')?._rawText || '';
+  writeClipboardText(raw).then(() => {
     btn.textContent = `✓ ${t('ui.copied')}`;
     btn.classList.add('copied');
     setTimeout(() => { btn.innerHTML = `⎘ ${t('ui.copy')}`; btn.classList.remove('copied'); }, 2000);
@@ -3446,13 +3796,74 @@ window.copyMsgText = function(btn) {
 };
 
 window.saveMsgText = function(btn) {
-  const raw = btn.closest('.msg-actions')?.dataset.rawText || '';
+  const raw = btn.closest('.msg-actions')?._rawText || '';
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
   _downloadTextFile(raw, `vibe-proving-${AppState.mode || 'chat'}-${stamp}.md`);
   const prev = btn.innerHTML;
   btn.textContent = `✓ ${t('ui.savedFile')}`;
   btn.classList.add('copied');
   setTimeout(() => { btn.innerHTML = prev; btn.classList.remove('copied'); }, 2000);
+};
+
+window.downloadMsgMarkdown = function(btn) {
+  const raw = btn.closest('.msg-actions')?._rawText || '';
+  if (!raw.trim()) {
+    showToast('warning', AppState.lang === 'zh' ? '没有可导出的内容' : 'Nothing to export');
+    return;
+  }
+  downloadTextFile(makeExportFilename('md'), raw, 'text/markdown;charset=utf-8');
+  const old = btn.textContent;
+  btn.textContent = AppState.lang === 'zh' ? '已下载' : 'Saved';
+  setTimeout(() => { btn.textContent = old; }, 1500);
+};
+
+window.exportMsgPdf = function(btn) {
+  const raw = btn.closest('.msg-actions')?._rawText || '';
+  if (!raw.trim()) {
+    showToast('warning', AppState.lang === 'zh' ? '没有可导出的内容' : 'Nothing to export');
+    return;
+  }
+  const title = AppState.lang === 'zh' ? 'vibe proving 导出' : 'vibe proving export';
+  const html = htmlDocumentForPdf(title, raw);
+  const old = btn.textContent;
+  btn.textContent = AppState.lang === 'zh' ? '打开中…' : 'Opening...';
+  try {
+    const w = window.open('', '_blank');
+    if (!w) throw new Error(AppState.lang === 'zh' ? '浏览器阻止了弹窗' : 'Popup blocked');
+    w.document.open();
+    w.document.write(html);
+    w.document.close();
+    let printed = false;
+    const triggerPrint = () => {
+      if (printed) return;
+      printed = true;
+      try {
+        w.focus();
+        w.print();
+      } catch (err) {
+        showToast('warning', AppState.lang === 'zh'
+          ? '打印页已打开，请在该窗口中选择保存为 PDF'
+          : 'Print page opened. Choose Save as PDF in that window.');
+      }
+    };
+    const waitAndPrint = () => {
+      if (w.__vpExportReady) {
+        setTimeout(triggerPrint, 150);
+      } else {
+        w.addEventListener?.('vp-export-ready', () => setTimeout(triggerPrint, 150), { once: true });
+        setTimeout(triggerPrint, 2500);
+      }
+    };
+    w.addEventListener?.('load', waitAndPrint, { once: true });
+    setTimeout(waitAndPrint, 500);
+    btn.textContent = AppState.lang === 'zh' ? '已打开' : 'Opened';
+  } catch (err) {
+    downloadTextFile(makeExportFilename('html'), html, 'text/html;charset=utf-8');
+    showToast('warning', AppState.lang === 'zh'
+      ? `无法打开打印页，已改为下载 HTML：${err.message || err}`
+      : `Could not open print page. Downloaded HTML instead: ${err.message || err}`);
+  }
+  setTimeout(() => { btn.textContent = old; }, 1500);
 };
 
 window.regenerateMessage = function(btn) {
@@ -3609,7 +4020,7 @@ function addMessage(role, content, opts = {}) {
       ? renderUserMessageHtml(content)
       : renderMarkdown(content);
     contentEl.appendChild(textDiv);
-    if (role === 'ai' && !opts.noSave) {
+    if (role === 'ai') {
       setTimeout(() => addMessageActions(bubble, content), 50);
     }
     setTimeout(() => renderKatexFallback(contentEl), 30);
@@ -3926,6 +4337,9 @@ async function handleLearning(statement) {
   window._lastLearnContentEl = contentEl;
 
   contentEl.innerHTML = `<div class="learn-body">${buildLearnSkeletonHtml()}</div>`;
+  const bubbleEl = contentEl.closest('.msg-bubble');
+  window._lastLearnBubbleEl = bubbleEl || null;
+  if (bubbleEl) addMessageActions(bubbleEl, '');
   AppState.set('isStreaming', true);
 
   startWaitTips(contentEl, { firstDelayMs: 800 });
@@ -3989,6 +4403,7 @@ async function handleLearning(statement) {
               .replace(/\$([^\$]*?)\\\]/g, '$$$$1$$')
               .replace(/\\\[([^\$]*?)\$/g, '$$$$1$$');
             rawBuffer += cleanChunk;
+            updateMessageActionsRawText(bubbleEl, rawBuffer);
             const sections = parseLearningOutput(rawBuffer, { allowEmpty: true });
             if (bodyEl()) _applyLearningSectionsToDom(sections, contentEl);
           } else if (obj.step !== undefined && obj.status !== undefined) {
@@ -4059,9 +4474,8 @@ async function handleLearning(statement) {
   }
 
   window._lastLearnRawBuffer = rawBuffer;
-  const bubbleEl = contentEl.closest('.msg-bubble');
   window._lastLearnBubbleEl = bubbleEl || null;
-  if (bubbleEl) addMessageActions(bubbleEl, rawBuffer);
+  updateMessageActionsRawText(bubbleEl, rawBuffer);
 
   stopWaitTips();
 
@@ -4412,21 +4826,14 @@ async function _streamLatexPanel(contentEl, blueprint, statement = '') {
     const freshCopyBtn = copyBtn.cloneNode(true);
     copyBtn.parentNode.replaceChild(freshCopyBtn, copyBtn);
     freshCopyBtn.addEventListener('click', () => {
-    if (!latex) return;
-    const clean = _stripFences(latex);
-    navigator.clipboard.writeText(clean).then(() => {
+      if (!latex) return;
+      const clean = _stripFences(latex);
+      writeClipboardText(clean).then(() => {
         const prev = freshCopyBtn.textContent;
         freshCopyBtn.textContent = t('ui.latexCopied');
         setTimeout(() => { freshCopyBtn.textContent = prev; }, 1500);
-    }).catch(() => {
-      const ta = document.createElement('textarea');
-      ta.value = clean;
-      document.body.appendChild(ta);
-      ta.select();
-      document.execCommand('copy');
-      document.body.removeChild(ta);
+      }).catch(() => showToast('error', t('ui.err.copyFailed')));
     });
-  });
   }
 
   try {
@@ -4575,7 +4982,8 @@ function renderMd(text) {
     if (typeof marked === 'undefined') {
       return escapeHtml(s).replace(/\n/g, '<br>');
     }
-    return marked.parse(autoWrapMath(s));
+    const protectedMath = _protectMathBeforeMarked(s);
+    return _restoreRenderedMath(marked.parse(protectedMath.markdown), protectedMath.renderedMath);
   } catch {
     return escapeHtml(s).replace(/\n/g, '<br>');
   }
@@ -5379,7 +5787,7 @@ function _finalizeFormalize(contentEl, result, stopped, statement = '') {
   const copyBtn = resultEl.querySelector('.formalize-copy-btn');
   if (copyBtn && lean_code) {
     copyBtn.addEventListener('click', () => {
-      navigator.clipboard.writeText(lean_code).then(() => {
+      writeClipboardText(lean_code).then(() => {
         const orig = copyBtn.innerHTML;
         copyBtn.textContent = isZh ? '已复制！' : 'Copied!';
         setTimeout(() => { copyBtn.innerHTML = orig; }, 1500);

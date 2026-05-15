@@ -15,6 +15,8 @@ ENV PYTHONUNBUFFERED=1 \
 # System dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
+    fontconfig \
+    fonts-noto-cjk \
     && rm -rf /var/lib/apt/lists/*
 
 # Python dependencies

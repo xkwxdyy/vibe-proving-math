@@ -18,7 +18,9 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import html
 import json
+import re
 import sys
 import time
 from pathlib import Path
@@ -131,6 +133,7 @@ _PROTECTED_PATH_PREFIXES = (
     "/solve",
     "/review",
     "/attachments",
+    "/export",
     "/search",
     "/projects",
     "/config",
@@ -366,6 +369,12 @@ class SolveLatexRequest(BaseModel):
     blueprint: str
     statement: str = ""
     model: Optional[str] = None
+
+
+class ExportPdfRequest(BaseModel):
+    title: str = "vibe proving export"
+    markdown: str
+    lang: Optional[str] = "zh"
 
 
 class ReviewRequest(BaseModel):
@@ -992,6 +1001,153 @@ async def learn_section(req: LearnSectionRequest, user: dict = Depends(current_u
         _sse_generator(_gen()),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+# ── 端点：/export/pdf ────────────────────────────────────────────────────────
+
+_MD_HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*$")
+
+
+def _strip_markdown_inline(text: str) -> str:
+    text = html.unescape(text or "")
+    text = re.sub(r"!\[([^\]]*)\]\([^)]+\)", r"\1", text)
+    text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)
+    text = re.sub(r"[*_`~]+", "", text)
+    return text
+
+
+def _markdown_to_plain_lines(markdown: str) -> list[tuple[str, str]]:
+    """Normalize Markdown into printable text blocks for dependable PDF export."""
+    lines: list[tuple[str, str]] = []
+    in_fence = False
+    for raw in (markdown or "").replace("\r\n", "\n").replace("\r", "\n").split("\n"):
+        line = raw.rstrip()
+        stripped = line.strip()
+        if stripped.startswith("```"):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            lines.append(("code", line or " "))
+            continue
+        if not stripped:
+            lines.append(("blank", ""))
+            continue
+        m = _MD_HEADING_RE.match(stripped)
+        if m:
+            level = str(min(len(m.group(1)), 3))
+            lines.append((f"h{level}", _strip_markdown_inline(m.group(2))))
+            continue
+        if stripped.startswith(("- ", "* ")):
+            lines.append(("body", "• " + _strip_markdown_inline(stripped[2:])))
+            continue
+        if stripped.startswith(">"):
+            lines.append(("quote", _strip_markdown_inline(stripped.lstrip("> "))))
+            continue
+        lines.append(("body", _strip_markdown_inline(stripped)))
+    return lines
+
+
+def _find_export_font() -> str | None:
+    candidates = [
+        "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
+        "/Library/Fonts/Arial Unicode.ttf",
+        "/System/Library/Fonts/Supplemental/Songti.ttc",
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.otf",
+        "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.otf",
+        "/usr/share/fonts/opentype/noto/NotoSerifCJK-Regular.ttc",
+        "/usr/share/fonts/opentype/noto/NotoSerifCJK-Regular.otf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    ]
+    for candidate in candidates:
+        if Path(candidate).exists():
+            return candidate
+    return None
+
+
+def _render_markdown_pdf_bytes(title: str, markdown: str) -> bytes:
+    try:
+        import fitz
+    except Exception as exc:  # pragma: no cover - depends on deployment env
+        raise HTTPException(status_code=500, detail="PDF 导出依赖 PyMuPDF 未安装") from exc
+
+    doc = fitz.open()
+    page_rect = fitz.paper_rect("a4")
+    margin_x, margin_y = 54, 54
+    usable_w = page_rect.width - margin_x * 2
+    y = margin_y
+    fontfile = _find_export_font()
+    font_kwargs = {"fontfile": fontfile, "fontname": "exportfont"} if fontfile else {"fontname": "helv"}
+
+    def new_page():
+        return doc.new_page(width=page_rect.width, height=page_rect.height)
+
+    page = new_page()
+
+    def write_block(kind: str, text: str) -> None:
+        nonlocal page, y
+        styles = {
+            "h1": (18, (0.07, 0.10, 0.16), 14),
+            "h2": (15, (0.07, 0.10, 0.16), 11),
+            "h3": (13, (0.10, 0.13, 0.18), 9),
+            "code": (9.5, (0.10, 0.13, 0.18), 7),
+            "quote": (10.5, (0.30, 0.34, 0.40), 8),
+            "body": (10.8, (0.12, 0.16, 0.22), 7),
+        }
+        if kind == "blank":
+            y += 8
+            if y > page_rect.height - margin_y - 12:
+                page = new_page()
+                y = margin_y
+            return
+        fontsize, color, gap = styles.get(kind, styles["body"])
+        text = re.sub(r"(\S{80})", r"\1 ", text or " ")
+        while True:
+            if y > page_rect.height - margin_y - fontsize * 2:
+                page = new_page()
+                y = margin_y
+            rect = fitz.Rect(margin_x, y, margin_x + usable_w, page_rect.height - margin_y)
+            leftover = page.insert_textbox(
+                rect,
+                text,
+                fontsize=fontsize,
+                color=color,
+                lineheight=1.45,
+                **font_kwargs,
+            )
+            if leftover >= 0:
+                used = rect.height - leftover
+                y += max(used, fontsize * 1.45) + gap
+                return
+            page = new_page()
+            y = margin_y
+
+    write_block("h1", (title or "vibe proving export").strip())
+    for kind, text in _markdown_to_plain_lines(markdown):
+        write_block(kind, text)
+
+    pdf = doc.tobytes(deflate=True, garbage=4)
+    doc.close()
+    return pdf
+
+
+@app.post("/export/pdf")
+async def export_pdf(req: ExportPdfRequest, user: dict = Depends(current_user)):
+    """Export Markdown-like conversation content as a downloadable PDF."""
+    if not req.markdown or not req.markdown.strip():
+        raise HTTPException(status_code=422, detail="markdown 不能为空")
+    if len(req.markdown) > 200000:
+        raise HTTPException(status_code=413, detail="导出内容过长，请先导出 Markdown")
+    pdf = _render_markdown_pdf_bytes(req.title, req.markdown)
+    filename = re.sub(r"[^A-Za-z0-9_.-]+", "-", (req.title or "vibe-proving-export")).strip("-")
+    if not filename:
+        filename = "vibe-proving-export"
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename[:80]}.pdf"'},
     )
 
 
